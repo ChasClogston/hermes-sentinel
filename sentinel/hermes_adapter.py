@@ -60,10 +60,13 @@ def normalize(tool_name: str, args: dict) -> Action:
         return Action('terminal', 'test_execution')
 
     # Do not approve a different binary simply because its basename is "curl".
-    if tok[0] != 'curl':
+    # curl -q MUST be its first option; otherwise ~/.curlrc can silently add
+    # proxies, destinations, file outputs, and other uninspected behavior.
+    if tok[0] != 'curl' or len(tok) < 3 or tok[1] != '-q':
         return Action('terminal', 'unknown')
-    # V0.5 grammar: curl [--upload-file SOURCE | -T SOURCE] URI
-    #              or curl URI. Any extra option, attached flag, host, config,
+    tok = [tok[0], *tok[2:]]
+    # V0.5 grammar: curl -q [--upload-file SOURCE | -T SOURCE] URI
+    #              or curl -q URI. Any extra option, attached flag, host, config,
     #              redirect, proxy or data argument is treated as unknown.
     if len(tok) == 2:
         uri = tok[1]

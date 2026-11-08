@@ -105,3 +105,5 @@ Test runners execute arbitrary repository-controlled code and now require approv
 Hermes may auto-approve native plugin approval requests when configured for YOLO or other approval-bypass modes; do not run Sentinel enforcement with those host settings. Peer plugins may modify tool arguments after the hook examines them. Audit-mode callback timeouts may still cause Hermes itself to block even though Sentinel returns no veto. The standalone SQLite ApprovalStore remains unused and is **not** an approval security boundary.
 
 Smoke invocation after installing: `PYTHONPATH=. python demo/hook_smoke.py` from the plugin root.
+
+The recognized curl form must include `-q` immediately after `curl`, disabling implicit `.curlrc` configuration. This does not control environment proxy variables or prevent out-of-band network traffic.

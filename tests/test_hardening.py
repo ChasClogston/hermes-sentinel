@@ -40,6 +40,15 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(canonical_destination('https://[::1]/x'),('https://[::1]:443','local_or_private'))
         self.assertEqual(canonical_destination('http://127.0.0.1'),('http://127.0.0.1:80','local_or_private'))
 
+    def test_curl_config_disabling_is_required(self):
+        from sentinel.hermes_adapter import normalize
+        for command in ('curl https://ok.example/u',
+                        'curl -T artifact.zip https://ok.example/u',
+                        'curl -s -q https://ok.example/u'):
+            with self.subTest(command=command):
+                self.assertEqual(normalize('terminal', {'command':command}).operation,'unknown')
+        self.assertEqual(normalize('terminal', {'command':'curl -q -T artifact.zip https://ok.example/u'}).operation,'network_upload')
+
     def test_f9_no_secret_in_warning(self):
         with tempfile.TemporaryDirectory() as d:
             h=SentinelHook(str(Path(d)/'missing.yml'),str(Path(d)/'audit.jsonl'),KEY,'audit')
@@ -57,9 +66,9 @@ class HardeningTests(unittest.TestCase):
                 state.mkdir(parents=True, exist_ok=True)
                 return str(state/'audit.jsonl'),KEY
             h=SentinelHook(str(ROOT/'policies/default.yaml'),'',KEY,'audit',state_resolver=resolver)
-            self.assertIsNone(h('terminal',{'command':'curl https://example.org/u'}))
+            self.assertIsNone(h('terminal',{'command':'curl -q https://example.org/u'}))
             active[0]=b
-            self.assertIsNone(h('terminal',{'command':'curl https://example.org/u'}))
+            self.assertIsNone(h('terminal',{'command':'curl -q https://example.org/u'}))
             self.assertEqual(len((a/'sentinel/audit.jsonl').read_text().splitlines()),1)
             self.assertEqual(len((b/'sentinel/audit.jsonl').read_text().splitlines()),1)
 
