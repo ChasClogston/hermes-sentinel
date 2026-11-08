@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from .audit import append_event
 from .config import load_policy
 from .engine import Action, evaluate
+from .source_policy import safe_source, safe_url_path
 
 _LOG = logging.getLogger(__name__)
 _SHELL_META = re.compile(r'[;&|`<>\n\r$*?\[\]{}]')
@@ -70,7 +71,7 @@ def normalize(tool_name: str, args: dict) -> Action:
     #              redirect, proxy or data argument is treated as unknown.
     if len(tok) == 2:
         uri = tok[1]
-        source = 'unknown'
+        source = None
     elif len(tok) == 4 and tok[1] in ('-T', '--upload-file'):
         source, uri = tok[2], tok[3]
     else:
@@ -85,8 +86,14 @@ def normalize(tool_name: str, args: dict) -> Action:
             return Action('terminal', 'unknown')
     except ValueError:
         return Action('terminal', 'unknown')
-    return Action('terminal', 'network_upload', uri,
-                  'credential_file' if _sensitive_path(source) else 'unknown')
+    path_ok, _ = safe_url_path(uri)
+    if source is None:
+        return Action('terminal', 'network_request', uri,
+                      'none' if path_ok else 'credential_file')
+    source_class, _ = safe_source(source, args.get('workdir'))
+    if not path_ok:
+        source_class = 'credential_file'
+    return Action('terminal', 'network_upload', uri, source_class)
 
 
 class SentinelHook:
@@ -136,13 +143,22 @@ class SentinelHook:
                 # One approval key PER EVENT. Persistent/"always" approval grants
                 # from Hermes cannot authorize subsequent Sentinel decisions.
                 host = urlsplit(action.destination).hostname or 'unknown'
-                # Only the hostname is shown; never path, query, or userinfo.
+                _, ui_path = safe_url_path(action.destination) if action.destination else (True, '[none]')
+                if action.operation == 'network_upload':
+                    _, ui_source = safe_source(shlex.split(args['command'])[3], args.get('workdir'))
+                else:
+                    ui_source = '[not applicable]'
+                base = args.get('workdir') if isinstance(args, dict) else None
+                workspace = Path(base).name if isinstance(base, str) and base else Path.cwd().name
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,40}',workspace):
+                    workspace = '[redacted]'
                 return {
                     'action': 'approve',
                     'rule_key': f'sentinel:{event_id}',
                     'message': (
                         f'Sentinel approval required: operation={decision.operation}, '
-                        f'destination={host}, source_class={action.source_class}, '
+                        f'destination={host}, path={ui_path}, source={ui_source}, '
+                        f'workspace={workspace}, source_class={action.source_class}, '
                         f'policy={decision.rule_id}, event={event_id}. '
                         'Approve this exact request only.'
                     ),
@@ -167,3 +183,9 @@ class BlockingHook:
     def __call__(self, tool_name: str, args: dict, **kwargs):
         return {'action': 'block',
                 'message': 'Sentinel startup health check failed; execution blocked.'}
+
+
+class ObservingFailureHook:
+    """Audit-mode startup fallback: never issue vetoes."""
+    def __call__(self, tool_name: str, args: dict, **kwargs):
+        return None

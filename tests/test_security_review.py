@@ -23,15 +23,18 @@ class AdversarialTests(unittest.TestCase):
     def test_f1_unique_approval_scope_and_sanitized_prompt(self):
         with tempfile.TemporaryDirectory() as d:
             h = SentinelHook(POLICY, str(Path(d) / "audit.jsonl"), KEY, "enforce")
-            a = h("terminal", {"command": "curl -q -T build.zip https://first.example/upload"})
-            b = h("terminal", {"command": "curl -q -T build.zip https://second.example/upload"})
-            c = h("terminal", {"command": "curl -q -T build.zip https://first.example/upload"})
+            (Path(d)/'build.zip').write_text('synthetic artifact')
+            a = h("terminal", {"command": "curl -q -T build.zip https://first.example/upload", "workdir":d})
+            b = h("terminal", {"command": "curl -q -T build.zip https://second.example/upload", "workdir":d})
+            c = h("terminal", {"command": "curl -q -T build.zip https://first.example/upload", "workdir":d})
             self.assertEqual([x["action"] for x in (a,b,c)], ["approve"]*3)
             self.assertEqual(len({x["rule_key"] for x in (a,b,c)}),3)
             self.assertNotIn("terminal", [x["rule_key"] for x in (a,b,c)])
             self.assertIn("first.example", a["message"])
             self.assertIn("network_upload", a["message"])
-            for secret in ("build.zip", "/upload", "https://"):
+            self.assertIn("build.zip",a["message"])
+            self.assertIn("/upload",a["message"])
+            for secret in ("https://", "synthetic artifact"):
                 self.assertNotIn(secret, a["message"])
 
     def test_f2_glob_attached_flag_and_secret_corpus(self):

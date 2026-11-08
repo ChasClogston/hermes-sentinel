@@ -18,7 +18,7 @@ Sentinel is an independent companion to Secret Guard. It does **not** copy Secre
 
 ## Demonstrated compatibility
 
-- On macOS, Hermes 0.23.0: 39 unit tests passed, plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
+- On macOS, Hermes 0.23.0: 46 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
@@ -75,7 +75,7 @@ The smoke test uses **synthetic proposed tool calls only**. It does not run `cur
 
 An append-only-by-convention `sentinel/audit.jsonl` contains: event and action IDs, UTC timestamp, tool class, operation, HMAC-SHA256 target identifier, policy ID, verdict, and execution status. The audit key is locally generated and stored at `sentinel/audit.key`; files use mode `0600`. Raw destinations and commands are not persisted by Sentinel.
 
-This journal is **not a complete execution log**. A verdict of `allowed` does not prove execution happened; `pending` does not prove the operator approved. SQLite `ApprovalStore` is a standalone prototype, not yet wired into the runtime hook.
+This journal is **not a complete execution log**. A verdict of `allowed` does not prove execution happened; `pending` does not prove the operator approved. Sentinel relies on Hermes-native approval prompts; it does not have a separate authorization database.
 
 ## Limitations and trust boundaries
 
@@ -102,8 +102,18 @@ Audit-only records now say `execution_status: not_enforced`, not `not_executed`:
 
 Test runners execute arbitrary repository-controlled code and now require approval. Mode typos and audit-key initialization errors install a blocking fallback hook, but complete failure to import or load this plugin still causes Hermes to run without the hook; verify it is loaded before assuming enforcement. Startup key creation uses an atomic link and separate profiles resolve audit keys/journals in their current Hermes home.
 
-Hermes may auto-approve native plugin approval requests when configured for YOLO or other approval-bypass modes; do not run Sentinel enforcement with those host settings. Peer plugins may modify tool arguments after the hook examines them. Audit-mode callback timeouts may still cause Hermes itself to block even though Sentinel returns no veto. The standalone SQLite ApprovalStore remains unused and is **not** an approval security boundary.
+Hermes may auto-approve native plugin approval requests when configured for YOLO or other approval-bypass modes; do not run Sentinel enforcement with those host settings. Peer plugins may modify tool arguments after the hook examines them. Audit-mode callback timeouts may still cause Hermes itself to block even though Sentinel returns no veto. No standalone Sentinel approval store ships with this release.
 
 Smoke invocation after installing: `PYTHONPATH=. python demo/hook_smoke.py` from the plugin root.
 
 The recognized curl form must include `-q` immediately after `curl`, disabling implicit `.curlrc` configuration. This does not control environment proxy variables or prevent out-of-band network traffic.
+
+## v0.5.1 second-review corrections and prompt fatigue
+
+- Uploads require a **regular, visible, single-component file within the selected workdir**. Hidden files, absolute/parent paths, symlinks, unresolvable files and sensitive directories are denied. A filename is not proof that its **contents** are safe; this is not a DLP engine. Path checks are vulnerable to same-user time-of-check/time-of-use file replacement because Hermes executes after the hook.
+- The native Hermes approval message identifies the source filename, destination hostname, a cautiously sanitized URL path, and a display-only workspace basename. Raw commands, raw URL queries, full private source paths and secret values remain excluded from Sentinel journals. Unsafe destination paths are denied rather than copied into prompts.
+- Read-only network requests are labeled `network_request`; test runners are labeled `approve-local-tests` and require approval. These commands may still execute arbitrary code in a repository.
+- In default audit mode, recoverable initialization errors install a nonblocking hook and warn without printing error arguments. Enforcement mode and invalid mode fail closed when hook registration is possible.
+- Per-event keys prevent approval reuse, but Hermes can still store useless `session`/`always` grants in its allowlist; for Sentinel prompts those options behave as effectively single-use. Do not use auto-approval/YOLO configurations when testing enforcement.
+- **Approval fatigue is not solved by broad exemptions.** v0.5.1 remains audit-first and intentionally blocks unclassified tools under enforcement. The separate follow-on project is narrowly scoped, time-limited grant reuse with a hardened trust boundary; it is not represented as implemented here.
+- A terminal user should use `HERMES_SENTINEL_MODE=audit` for daily observation. Enforce mode is a strictly scoped research/demo control, not a drop-in general Hermes permission system or OS network sandbox.

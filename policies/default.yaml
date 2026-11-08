@@ -6,14 +6,14 @@ rules:
   - id: deny-credential-upload
     priority: 100
     effect: deny
-    operations: [network_upload]
+    operations: [network_upload, network_request]
     source_classes: [credential_file, private_key]
   - id: approve-external-upload
     priority: 80
     effect: require_approval
-    operations: [network_upload]
+    operations: [network_upload, network_request]
     destination_classes: [external_untrusted]
-  - id: allow-local-tests
+  - id: approve-local-tests
     priority: 50
     effect: require_approval
     operations: [test_execution]
