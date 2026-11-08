@@ -1,6 +1,7 @@
 """Hermes Sentinel registration through public plugin APIs only."""
 from __future__ import annotations
 import os
+import logging
 import secrets
 import tempfile
 import time
@@ -45,14 +46,27 @@ def _audit_key(state: Path) -> bytes:
                 return key
         finally:
             os.close(fd)
+        # Clean only stale siblings hard-linked to the exact key inode.
+        # Never delete an active publisher's temporary key.
+        if attempt >= 20:
+            try:
+                key_stat = key_path.stat()
+                for sibling in state.glob('.audit-key-*'):
+                    info = sibling.lstat()
+                    if (info.st_ino == key_stat.st_ino
+                            and info.st_dev == key_stat.st_dev
+                            and time.time() - info.st_mtime > 5):
+                        sibling.unlink()
+            except OSError:
+                pass
         time.sleep(0.01)
     raise ValueError('audit key still multiply linked')
 
 
 def register(ctx):
-    """Never silently skip registration after recoverable initialization failure."""
+    """Audit startup failures observe only; enforce failures register a veto."""
+    mode = os.environ.get('HERMES_SENTINEL_MODE', 'audit').strip().lower()
     try:
-        mode = os.environ.get('HERMES_SENTINEL_MODE', 'audit').strip().lower()
         if mode not in {'audit', 'enforce'}:
             raise ValueError('invalid Sentinel mode')
         # Hermes constants honor multiplex context-local profile overrides.
@@ -65,8 +79,14 @@ def register(ctx):
             return str(current / 'audit.jsonl'), _audit_key(current)
         handler = SentinelHook(policy_path, str(state / 'audit.jsonl'), key,
                                mode=mode, state_resolver=resolve_current_profile)
-    except Exception:
-        # A failure to register this fallback hook would still leave Hermes
-        # unprotected. External enforcement health checks remain necessary.
-        handler = BlockingHook()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            'Sentinel initialization failure: %s', type(exc).__name__)
+        # Audit must not turn a damaged journal into an agent-wide denial.
+        # Invalid mode cannot be trusted as audit and remains fail-closed.
+        if mode == 'audit':
+            from .sentinel.hermes_adapter import ObservingFailureHook
+            handler = ObservingFailureHook()
+        else:
+            handler = BlockingHook()
     ctx.register_hook('pre_tool_call', handler)

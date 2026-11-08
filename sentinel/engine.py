@@ -40,7 +40,7 @@ def canonical_destination(raw: str | None) -> tuple[str, str]:
             category = "local_or_private" if not ip.is_global else "external_untrusted"
         except ValueError:
             # Ambiguous numeric IP notation must not be treated as public DNS.
-            if re.fullmatch(r"[0-9A-Fa-fxX.]+", host):
+            if all(re.fullmatch(r"(?:0[xX][0-9a-fA-F]+|[0-9]+)", x) for x in host.split(".")):
                 return "unknown", "unknown"
             category = "local_or_private" if host == "localhost" or host.endswith(".localhost") else "external_untrusted"
         display_host = f"[{host}]" if ":" in host else host

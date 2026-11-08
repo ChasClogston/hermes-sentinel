@@ -8,7 +8,8 @@ class AdapterTests(unittest.TestCase):
     def test_upload_needs_approval(self):
         with tempfile.TemporaryDirectory() as d:
             hook=SentinelHook(str(ROOT/'policies/default.yaml'), str(Path(d)/'audit.jsonl'), b'x'*32, mode='enforce')
-            result=hook('terminal', {'command':'curl -q -T artifact.zip https://upload.example.invalid/api'}, 's')
+            (Path(d)/'artifact.zip').write_text('synthetic artifact')
+            result=hook('terminal', {'command':'curl -q -T artifact.zip https://upload.example.invalid/api', 'workdir':d}, 's')
             self.assertEqual(result['action'], 'approve')
             self.assertNotIn('artifact.zip', (Path(d)/'audit.jsonl').read_text())
     def test_unknown_denied(self):

@@ -5,9 +5,9 @@ import yaml
 _TOP = {'version', 'defaults', 'rules'}
 _DEFAULTS = {'unknown_action', 'unknown_destination'}
 _RULE = {'id','priority','effect','operations','destination_classes','source_classes'}
-_OPERATIONS = {'network_upload','test_execution','unknown'}
+_OPERATIONS = {'network_upload','network_request','test_execution','unknown'}
 _DESTINATIONS = {'external_untrusted','local_or_private','none','unknown'}
-_SOURCES = {'credential_file','private_key','unknown'}
+_SOURCES = {'credential_file','private_key','workspace_file','none','unknown'}
 
 
 def _string_list(value, valid):
