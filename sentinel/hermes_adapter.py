@@ -1,116 +1,166 @@
-"""Hermes pre_tool_call integration. Never log tool arguments or exception text."""
+"""Conservative Hermes action-governance hook.
+
+Approved grammar is deliberately tiny. Unknown actions block in enforcement mode.
+No proposed shell commands are executed or serialized by this module.
+"""
 from __future__ import annotations
-import os
+
+import logging
 import re
 import secrets
 import shlex
 from pathlib import Path
-from .engine import Action, evaluate
-from .config import load_policy
+from urllib.parse import urlsplit
 from .audit import append_event
+from .config import load_policy
+from .engine import Action, evaluate
 
-URL = re.compile(r'https?://[^\s\'"<>]+', re.I)
-NETWORK = {'curl', 'wget', 'http', 'httpie'}
-TEST = {'pytest', 'python -m pytest', 'python3 -m pytest', 'go test', 'cargo test', 'npm test'}
-
-def _sensitive_path(path: str) -> bool:
-    """Conservative filename indicator, not a complete data-classification system."""
-    p = Path(path.lstrip('@')).name.lower()
-    return (p in {'.env', 'id_rsa', 'id_ed25519', 'credentials.json', 'auth.json'}
-            or p.endswith(('.pem', '.key', '.p12', '.pfx'))
-            or p.startswith('.env.') or any(t in p for t in ('secret', 'credential', 'token')))
+_LOG = logging.getLogger(__name__)
+_SHELL_META = re.compile(r'[;&|`<>\n\r$*?\[\]{}]')
+_SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'id_rsa',
+              'id_dsa', 'id_ecdsa', 'id_ed25519', 'credentials.json',
+              'auth.json', 'config.yaml', 'hosts.yml'}
+_PRIVATE_DIRS = {'.ssh', '.aws', '.kube', '.docker', '.gnupg'}
 
 
-def _transfer_source_class(tokens: list[str]) -> str:
-    """Recognize visible source-path flags; dynamic or opaque inputs remain unknown."""
-    for index, token in enumerate(tokens):
-        if token in {'-T', '--upload-file', '-d', '--data', '--data-binary', '--data-raw', '--data-urlencode', '-F', '--form', '--post-file'}:
-            if index + 1 < len(tokens):
-                value = tokens[index + 1]
-                if _sensitive_path(value):
-                    return 'credential_file'
-        if token.startswith(('--upload-file=', '--post-file=')) and _sensitive_path(token.split('=', 1)[1]):
-            return 'credential_file'
-        if token.startswith('@') and _sensitive_path(token):
-            return 'credential_file'
-    return 'unknown'
+def _sensitive_path(raw: str) -> bool:
+    p = raw.strip().lstrip('@').lower()
+    components = set(Path(p).parts)
+    leaf = Path(p).name
+    return (
+        bool(components.intersection(_PRIVATE_DIRS))
+        or leaf in _SENSITIVE
+        or leaf.startswith('.env.')
+        or leaf.endswith(('.pem', '.key', '.p12', '.pfx'))
+        or any(x in leaf for x in ('secret', 'credential', 'token'))
+        or '/.config/gh/' in ('/' + p.lstrip('/') + '/')
+    )
 
 
 def normalize(tool_name: str, args: dict) -> Action:
-    """Conservatively classify a small, known set of command forms.
+    """Recognize only single-destination, option-restricted curl proposals.
 
-    This is NOT a shell parser, network firewall, or guarantee against redirects.
+    Other network clients and arbitrary commands cannot safely be classified.
+    Classification is NOT a shell sandbox or network boundary.
     """
-    if not isinstance(args, dict) or tool_name != 'terminal':
+    if tool_name != 'terminal' or not isinstance(args, dict):
         return Action('other', 'unknown')
-    command = args.get('command')
-    if not isinstance(command, str) or not command.strip() or len(command) > 16384:
+    cmd = args.get('command')
+    if not isinstance(cmd, str) or not cmd.strip() or len(cmd) > 16384:
+        return Action('terminal', 'unknown')
+    if _SHELL_META.search(cmd) or '\\' in cmd:
         return Action('terminal', 'unknown')
     try:
-        tokens = shlex.split(command)
+        tok = shlex.split(cmd, posix=True)
     except ValueError:
         return Action('terminal', 'unknown')
-    if not tokens:
+    if not tok:
         return Action('terminal', 'unknown')
-    # No shell chaining, substitution, expansion or redirection can be safely summarized.
-    if re.search(r'[;&|`<>\n\r]|\$|\\\n', command):
-        return Action('terminal', 'unknown')
-    if command.strip() in TEST or tokens in [['python', '-m', 'pytest'], ['python3', '-m', 'pytest']]:
+    if tok in (['pytest'], ['python', '-m', 'pytest'], ['python3', '-m', 'pytest']):
         return Action('terminal', 'test_execution')
-    executable = Path(tokens[0]).name.lower()
-    if executable not in NETWORK or tokens[0].startswith(('.', '~')):
+
+    # Do not approve a different binary simply because its basename is "curl".
+    if tok[0] != 'curl':
         return Action('terminal', 'unknown')
-    # A single explicit HTTP(S) destination is necessary, not sufficient, to permit approval.
-    urls = URL.findall(command)
-    if len(urls) != 1:
+    # V0.5 grammar: curl [--upload-file SOURCE | -T SOURCE] URI
+    #              or curl URI. Any extra option, attached flag, host, config,
+    #              redirect, proxy or data argument is treated as unknown.
+    if len(tok) == 2:
+        uri = tok[1]
+        source = 'unknown'
+    elif len(tok) == 4 and tok[1] in ('-T', '--upload-file'):
+        source, uri = tok[2], tok[3]
+    else:
         return Action('terminal', 'unknown')
-    # Prevent the regex from extracting a harmless URL out of a larger opaque protocol string.
-    if re.search(r'(?i)(?:file|ftp|sftp|scp|gopher|dict)://', command):
+    try:
+        parsed = urlsplit(uri)
+        if (parsed.scheme.lower() not in {'http', 'https'}
+                or not parsed.hostname or parsed.username is not None
+                or parsed.password is not None or parsed.fragment):
+            return Action('terminal', 'unknown')
+        if parsed.port == 0:
+            return Action('terminal', 'unknown')
+    except ValueError:
         return Action('terminal', 'unknown')
-    # Treat URLs in payload text as ambiguous. The URI must appear as its own argument.
-    uri = urls[0].rstrip('),')
-    if uri not in tokens:
-        return Action('terminal', 'unknown')
-    # Respect explicit `--` and reject option values that may themselves invoke commands.
-    if any(t.startswith(('--config', '-K', '--proxy', '--preproxy', '--resolve', '--connect-to', '--next', '--url-query', '--libcurl', '--write-out')) for t in tokens[1:]):
-        return Action('terminal', 'unknown')
-    return Action('terminal', 'network_upload', uri, _transfer_source_class(tokens))
+    return Action('terminal', 'network_upload', uri,
+                  'credential_file' if _sensitive_path(source) else 'unknown')
+
 
 class SentinelHook:
-    def __init__(self, policy_path: str, audit_path: str, audit_key: bytes, mode: str = "audit"):
-        if mode not in {"audit", "enforce"}:
-            raise ValueError("invalid Sentinel mode")
+    def __init__(self, policy_path: str, audit_path: str, audit_key: bytes,
+                 mode: str = 'audit', state_resolver=None):
+        if mode not in {'audit', 'enforce'}:
+            raise ValueError('invalid Sentinel mode')
+        self.policy_path = policy_path
+        self.audit_path = audit_path
+        self.audit_key = audit_key
         self.mode = mode
-        self.policy_path, self.audit_path, self.audit_key = policy_path, audit_path, audit_key
+        self.state_resolver = state_resolver
 
-    def __call__(self, tool_name: str, args: dict, task_id: str = '', **kwargs):
+    def __call__(self, tool_name: str, args: dict, task_id: str = '',
+                 session_id: str = '', tool_call_id: str = '', **kwargs):
         try:
             action = normalize(tool_name, args)
-            decision = evaluate(action, load_policy(self.policy_path), self.audit_key)
-            # IDs are random and not derived from arguments or user-supplied text.
+            audit_path, audit_key = (self.state_resolver() if self.state_resolver is not None
+                                     else (self.audit_path, self.audit_key))
+            decision = evaluate(action, load_policy(self.policy_path), audit_key)
             event_id = secrets.token_hex(12)
-            append_event(self.audit_path, {
-                'event_id': event_id, 'action_id': event_id,
+            entry = {
+                'event_id': event_id,
+                'action_id': event_id,
                 'tool_name': 'terminal' if tool_name == 'terminal' else 'other',
                 'operation': decision.operation,
                 'target_hmac_sha256': decision.target_digest,
                 'verdict': decision.verdict,
+                'enforcement_mode': self.mode,
                 'policy_id': decision.rule_id,
                 'reason_code': 'policy_decision',
-                'execution_status': 'not_executed' if decision.verdict != 'allowed' else 'pending_execution',
-            })
-            # Audit mode observes without changing the tool execution decision.
+                'execution_status': ('not_enforced' if self.mode == 'audit'
+                                     else 'blocked_by_sentinel' if decision.verdict == 'blocked'
+                                     else 'approval_requested' if decision.verdict == 'pending'
+                                     else 'not_observed'),
+            }
+            # Keep opaque host-provided IDs only when they meet strict token syntax.
+            for k, value in (('session_id', session_id), ('tool_call_id', tool_call_id)):
+                if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,96}', value):
+                    entry[k] = value
+            append_event(audit_path, entry)
             if self.mode == 'audit':
                 return None
             if decision.verdict == 'allowed':
                 return None
             if decision.verdict == 'pending':
-                # Hermes approval gate owns the human interaction and execution continuation.
-                return {'action': 'approve', 'message': f'Sentinel authorization required (event {event_id}).'}
-            return {'action': 'block', 'message': f'Sentinel policy blocked this action (event {event_id}).'}
-        except Exception:
-            # Audit-only mode must not return a policy veto on evaluation/journal errors.
-            # The host may still independently fail closed on hook timeout.
+                # One approval key PER EVENT. Persistent/"always" approval grants
+                # from Hermes cannot authorize subsequent Sentinel decisions.
+                host = urlsplit(action.destination).hostname or 'unknown'
+                # Only the hostname is shown; never path, query, or userinfo.
+                return {
+                    'action': 'approve',
+                    'rule_key': f'sentinel:{event_id}',
+                    'message': (
+                        f'Sentinel approval required: operation={decision.operation}, '
+                        f'destination={host}, source_class={action.source_class}, '
+                        f'policy={decision.rule_id}, event={event_id}. '
+                        'Approve this exact request only.'
+                    ),
+                }
+            return {
+                'action': 'block',
+                'message': f'Sentinel policy blocked this tool call (event {event_id}).'
+            }
+        except Exception as exc:
+            # Never include exception text, which may embed raw arguments.
+            _LOG.warning('Sentinel hook failure: %s', type(exc).__name__)
             if self.mode == 'audit':
                 return None
-            return {'action': 'block', 'message': 'Sentinel policy evaluation unavailable; action blocked.'}
+            return {
+                'action': 'block',
+                'message': 'Sentinel evaluation unavailable; tool call blocked.'
+            }
+
+
+class BlockingHook:
+    """Emergency fallback when Sentinel initialization is misconfigured."""
+    def __call__(self, tool_name: str, args: dict, **kwargs):
+        return {'action': 'block',
+                'message': 'Sentinel startup health check failed; execution blocked.'}

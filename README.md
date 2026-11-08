@@ -18,7 +18,7 @@ Sentinel is an independent companion to Secret Guard. It does **not** copy Secre
 
 ## Demonstrated compatibility
 
-- On macOS, Hermes 0.23.0: 29 unit tests passed, plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
+- On macOS, Hermes 0.23.0: 39 unit tests passed, plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
@@ -93,3 +93,15 @@ Independent repository and release cadence from Secret Guard. No vendored code o
 ## Required disclosures
 
 Sentinel itself makes no third-party network requests, executes no shell commands, runs no background processes, and reads no external credential stores. It inspects the proposed command arguments passed by Hermes to its hook and reads its own policy YAML and locally generated audit key. It writes only a local HMAC key and sanitized JSONL records under the active Hermes home. It does not store raw command arguments, URLs, or secret values. Hermes and other tools may separately log or transmit their own data.
+
+## v0.5 security review remediation
+
+An independent adversarial review identified weaknesses in v0.4.0. Version 0.5 narrows command recognition to a restricted, exact curl grammar, uses a fresh `rule_key` per approval request to prevent session/always grants carrying over, and displays only an operation, hostname and source classification in approval messages. All unknown tools and shell expressions are denied in enforce mode. This is a conservative prototype, **not general shell-policy enforcement**.
+
+Audit-only records now say `execution_status: not_enforced`, not `not_executed`: they represent a *would-be* policy verdict, not the actual execution outcome. Enforcement records mean `approval_requested` or `not_observed`, not a claim that a human approved or that the tool executed. Hermes post-execution correlation is still future work.
+
+Test runners execute arbitrary repository-controlled code and now require approval. Mode typos and audit-key initialization errors install a blocking fallback hook, but complete failure to import or load this plugin still causes Hermes to run without the hook; verify it is loaded before assuming enforcement. Startup key creation uses an atomic link and separate profiles resolve audit keys/journals in their current Hermes home.
+
+Hermes may auto-approve native plugin approval requests when configured for YOLO or other approval-bypass modes; do not run Sentinel enforcement with those host settings. Peer plugins may modify tool arguments after the hook examines them. Audit-mode callback timeouts may still cause Hermes itself to block even though Sentinel returns no veto. The standalone SQLite ApprovalStore remains unused and is **not** an approval security boundary.
+
+Smoke invocation after installing: `PYTHONPATH=. python demo/hook_smoke.py` from the plugin root.

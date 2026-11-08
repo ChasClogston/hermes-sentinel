@@ -18,7 +18,7 @@ class AdapterTests(unittest.TestCase):
     def test_simple_test_allowed(self):
         with tempfile.TemporaryDirectory() as d:
             hook=SentinelHook(str(ROOT/'policies/default.yaml'), str(Path(d)/'audit.jsonl'), b'x'*32, mode='enforce')
-            self.assertIsNone(hook('terminal', {'command':'pytest'}, 's'))
+            self.assertEqual(hook('terminal', {'command':'pytest'}, 's')['action'],'approve')
     def test_secret_not_logged(self):
         with tempfile.TemporaryDirectory() as d:
             hook=SentinelHook(str(ROOT/'policies/default.yaml'), str(Path(d)/'audit.jsonl'), b'x'*32, mode='enforce')

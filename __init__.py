@@ -1,25 +1,65 @@
-"""Hermes Sentinel plugin entry point."""
+"""Hermes Sentinel registration through public plugin APIs only."""
 from __future__ import annotations
 import os
+import secrets
+import tempfile
 from pathlib import Path
-from .sentinel.hermes_adapter import SentinelHook
+from .sentinel.hermes_adapter import SentinelHook, BlockingHook
+
+
+def _audit_key(state: Path) -> bytes:
+    """Install a complete key atomically without replacing another process's key."""
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    key_path = state / 'audit.key'
+    # mkstemp creates 0600, and hard-link publication is atomic.
+    if not key_path.exists():
+        fd, temporary = tempfile.mkstemp(prefix='.audit-key-', dir=state)
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                out.write(secrets.token_bytes(32))
+                out.flush()
+                os.fsync(out.fileno())
+            try:
+                os.link(temporary, key_path)
+            except FileExistsError:
+                pass  # Another process published a complete key first.
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+    fd = os.open(key_path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        st = os.fstat(fd)
+        if st.st_mode & 0o077 or st.st_nlink != 1:
+            raise ValueError('unsafe audit key file')
+        with os.fdopen(fd, 'rb', closefd=False) as f:
+            key = f.read(33)
+    finally:
+        os.close(fd)
+    if len(key) != 32:
+        raise ValueError('invalid audit key length')
+    return key
 
 
 def register(ctx):
-    mode = os.environ.get("HERMES_SENTINEL_MODE", "audit").strip().lower()
-    if mode not in {"audit", "enforce"}:
-        raise ValueError("HERMES_SENTINEL_MODE must be audit or enforce")
-    root = Path(os.environ.get('HERMES_HOME', str(Path.home() / '.hermes')))
-    state = root / 'sentinel'
-    state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    key_path = state / 'audit.key'
-    if not key_path.exists():
-        import secrets
-        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'wb') as out:
-            out.write(secrets.token_bytes(32))
-    key = key_path.read_bytes()
-    if len(key) != 32:
-        raise ValueError('Sentinel audit key invalid')
-    policy_path = str(Path(__file__).parent / 'policies' / 'default.yaml')
-    ctx.register_hook('pre_tool_call', SentinelHook(policy_path, str(state / 'audit.jsonl'), key, mode=mode))
+    """Never silently skip registration after recoverable initialization failure."""
+    try:
+        mode = os.environ.get('HERMES_SENTINEL_MODE', 'audit').strip().lower()
+        if mode not in {'audit', 'enforce'}:
+            raise ValueError('invalid Sentinel mode')
+        # Hermes constants honor multiplex context-local profile overrides.
+        from hermes_constants import get_hermes_home
+        state = get_hermes_home() / 'sentinel'
+        key = _audit_key(state)
+        policy_path = str(Path(__file__).parent / 'policies' / 'default.yaml')
+        def resolve_current_profile():
+            current = get_hermes_home() / 'sentinel'
+            return str(current / 'audit.jsonl'), _audit_key(current)
+        handler = SentinelHook(policy_path, str(state / 'audit.jsonl'), key,
+                               mode=mode, state_resolver=resolve_current_profile)
+    except Exception:
+        # A failure to register this fallback hook would still leave Hermes
+        # unprotected. External enforcement health checks remain necessary.
+        handler = BlockingHook()
+    ctx.register_hook('pre_tool_call', handler)

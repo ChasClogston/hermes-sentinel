@@ -16,7 +16,7 @@ class EngineTests(unittest.TestCase):
     def test_approve_external(self):
         self.assertEqual(evaluate(Action('terminal','network_upload','https://safe.example/path'),self.policy,self.key).verdict,'pending')
     def test_allow_local(self):
-        self.assertEqual(evaluate(Action('terminal','test_execution'),self.policy,self.key).verdict,'allowed')
+        self.assertEqual(evaluate(Action('terminal','test_execution'),self.policy,self.key).verdict,'pending')
     def test_unknown_denied(self):
         self.assertEqual(evaluate(Action('terminal','shell_unknown'),self.policy,self.key).verdict,'blocked')
     def test_credentials_in_uri_denied(self):
