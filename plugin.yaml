@@ -3,6 +3,7 @@ version: 0.4.0
 description: "Audit-first, deterministic Hermes tool-action governance for macOS and Linux."
 author: "Hermes Sentinel"
 kind: standalone
+requires_hermes: ">=0.23.0"
 platforms:
   - macos
   - linux

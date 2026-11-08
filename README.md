@@ -89,3 +89,7 @@ This journal is **not a complete execution log**. A verdict of `allowed` does no
 ## License and development
 
 Independent repository and release cadence from Secret Guard. No vendored code or runtime dependency. This plugin is experimental and should be evaluated with synthetic data in disposable profiles before any production use.
+
+## Required disclosures
+
+Sentinel itself makes no third-party network requests, executes no shell commands, runs no background processes, and reads no external credential stores. It inspects the proposed command arguments passed by Hermes to its hook and reads its own policy YAML and locally generated audit key. It writes only a local HMAC key and sanitized JSONL records under the active Hermes home. It does not store raw command arguments, URLs, or secret values. Hermes and other tools may separately log or transmit their own data.
