@@ -1,5 +1,5 @@
 name: hermes-sentinel
-version: 0.4.0
+version: 0.5.0
 description: "Audit-first, deterministic Hermes tool-action governance for macOS and Linux."
 author: "Hermes Sentinel"
 kind: standalone

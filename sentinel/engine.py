@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
+import re
 import json
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -31,15 +32,19 @@ def canonical_destination(raw: str | None) -> tuple[str, str]:
         if p.scheme.lower() not in ("http", "https") or not p.hostname or p.username or p.password:
             return "unknown", "unknown"
         host = p.hostname.encode("idna").decode("ascii").lower().rstrip(".")
-        port = p.port or (443 if p.scheme.lower() == "https" else 80)
+        port = p.port if p.port is not None else (443 if p.scheme.lower() == "https" else 80)
         if not 1 <= port <= 65535:
             return "unknown", "unknown"
         try:
             ip = ipaddress.ip_address(host.strip("[]"))
             category = "local_or_private" if not ip.is_global else "external_untrusted"
         except ValueError:
+            # Ambiguous numeric IP notation must not be treated as public DNS.
+            if re.fullmatch(r"[0-9A-Fa-fxX.]+", host):
+                return "unknown", "unknown"
             category = "local_or_private" if host == "localhost" or host.endswith(".localhost") else "external_untrusted"
-        return f"{p.scheme.lower()}://{host}:{port}", category
+        display_host = f"[{host}]" if ":" in host else host
+        return f"{p.scheme.lower()}://{display_host}:{port}", category
     except (ValueError, UnicodeError):
         return "unknown", "unknown"
 

@@ -15,6 +15,6 @@ rules:
     destination_classes: [external_untrusted]
   - id: allow-local-tests
     priority: 50
-    effect: allow
+    effect: require_approval
     operations: [test_execution]
     destination_classes: [none]
