@@ -121,7 +121,11 @@ class SentinelHook:
                 'tool_name': 'terminal' if tool_name == 'terminal' else 'other',
                 'operation': decision.operation,
                 'target_hmac_sha256': decision.target_digest,
-                'verdict': decision.verdict,
+                'verdict': ('unclassified' if self.mode == 'audit'
+                            and decision.rule_id == 'default-deny' else decision.verdict),
+                'policy_verdict': decision.verdict,
+                'classification': ('unclassified' if decision.rule_id == 'default-deny'
+                                   else 'matched'),
                 'enforcement_mode': self.mode,
                 'policy_id': decision.rule_id,
                 'reason_code': 'policy_decision',

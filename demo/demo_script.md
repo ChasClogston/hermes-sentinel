@@ -15,3 +15,8 @@
 ## Demo integrity
 
 Do **not** claim an actual exfiltration attempt was stopped if only passing synthetic proposals to the hook. Label as "simulation" throughout. A live model-driven Hermes run and human approval resolution need additional integration testing.
+
+
+## v0.5.2 demo addition
+
+Use `PYTHONPATH=. python demo/report_smoke.py` to produce a synthetic (not production) report showing unclassified actions separately from hard-deny matches and approval candidates. The demo does not execute the proposed commands or use real secrets. Display the aggregates and explicitly state that all counts represent proposed actions, not execution outcomes.

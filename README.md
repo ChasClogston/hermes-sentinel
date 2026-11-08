@@ -1,7 +1,7 @@
 # Hermes Sentinel
 
 **Experimental, audit-first action governance for Nous Research Hermes Agent.**
-Targets **macOS and Linux**; requires Python 3.11+ and PyYAML 6.x.
+Targets **macOS and Linux**; requires Python 3.11+ and Hermes 0.23.0+ (uses Hermes bundled `hermes_yaml`; no external PyYAML dependency).
 
 Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code, ingest secret values, or require Secret Guard installed.
 
@@ -18,7 +18,7 @@ Sentinel is an independent companion to Secret Guard. It does **not** copy Secre
 
 ## Demonstrated compatibility
 
-- On macOS, Hermes 0.23.0: 46 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
+- On macOS, Hermes 0.23.0: 52 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
@@ -51,7 +51,7 @@ Test enforcement only in this disposable profile:
 export HERMES_SENTINEL_MODE=enforce
 ```
 
-**Enforcement is deliberately restrictive:** `pytest` is allowed, obvious credential file transfers are blocked, a recognized external transfer requests Hermes native approval, and all other unrecognized operations are blocked. This default policy is unsuitable for ordinary daily use.
+**Enforcement is deliberately restrictive:** `pytest` requires Hermes approval, obvious credential file transfers are blocked, a recognized external transfer requests Hermes native approval, and all other unrecognized operations are blocked. This default policy is unsuitable for ordinary daily use.
 
 ### Remove
 
@@ -66,7 +66,7 @@ A running gateway may require a restart to unload hooks. Audit files under `$HER
 
 ```bash
 python3 -m unittest discover -s tests -v
-python3 demo/hook_smoke.py
+PYTHONPATH=. python3 demo/hook_smoke.py
 ```
 
 The smoke test uses **synthetic proposed tool calls only**. It does not run `curl`, `pytest`, or any arbitrary shell command. It verifies audit-only behavior, enforcement decisions, and that the canary never appears in Sentinel's journal.
@@ -117,3 +117,15 @@ The recognized curl form must include `-q` immediately after `curl`, disabling i
 - Per-event keys prevent approval reuse, but Hermes can still store useless `session`/`always` grants in its allowlist; for Sentinel prompts those options behave as effectively single-use. Do not use auto-approval/YOLO configurations when testing enforcement.
 - **Approval fatigue is not solved by broad exemptions.** v0.5.1 remains audit-first and intentionally blocks unclassified tools under enforcement. The separate follow-on project is narrowly scoped, time-limited grant reuse with a hardened trust boundary; it is not represented as implemented here.
 - A terminal user should use `HERMES_SENTINEL_MODE=audit` for daily observation. Enforce mode is a strictly scoped research/demo control, not a drop-in general Hermes permission system or OS network sandbox.
+
+## v0.5.2 — Audit classification and report
+
+A default-deny policy decision for an action Sentinel cannot classify is still `blocked` **under enforcement**, but in **audit-only** records its displayed verdict is now `unclassified` with `classification: unclassified`, `policy_verdict: blocked`, and `execution_status: not_enforced`. Recognized hard-deny matches remain `blocked`, allowing incident review without drowning in ordinary unknown actions.
+
+The CLI `sentinel report --days 7` (or `python -m sentinel.cli report --days 7`) reads the active Hermes profile's `sentinel/audit.jsonl` and prints only aggregate counts. `--journal /path/to/synthetic.jsonl` is provided for testing. It counts **proposed tool calls**, not confirmed execution, and it separates policy matches, approval candidates, observations, and interception decisions. Existing v0.5.1 default-deny rows are recognized as unclassified using the policy ID. No individual target, command, or session identifier appears in the report.
+
+`sentinel report` does not read another profile by default, make external requests, or prove that a high-risk operation actually executed. If the current profile has no journal, the report shows zeros. Keep audit mode on for unobtrusive observability; enforcement is still narrow and may block many routine actions. The report helps quantify that prospective friction **before** choosing to enable enforcement.
+
+**YAML compatibility:** Policies now use Hermes's `hermes_yaml.safe_load` implementation rather than importing PyYAML. The cross-platform GitHub test matrix fetches the Hermes YAML compatibility module from a pinned Hermes source commit for CI only; plugin installations do not fetch this source themselves.
+
+**Catalog admission caveat:** Hermes 0.23.0 currently emits a rule-9 warning for the direct `import hermes_yaml` in this plugin. That module is a bundled Hermes YAML compatibility utility and avoids the external PyYAML dependency, but the loader is not formally listed as a public plugin API. We disclose the warning rather than conceal the import; catalog maintainers should confirm whether this use is acceptable.

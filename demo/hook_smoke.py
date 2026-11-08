@@ -27,7 +27,9 @@ def smoke(mode: str):
         data = journal.read_text()
         assert CANARY not in data
         records = [json.loads(line) for line in data.splitlines()]
-        assert [r["verdict"] for r in records] == ["pending", "pending", "blocked", "blocked", "blocked"]
+        expected = (["pending", "pending", "blocked", "unclassified", "unclassified"]
+                    if mode == "audit" else ["pending", "pending", "blocked", "blocked", "blocked"])
+        assert [r["verdict"] for r in records] == expected
         assert all("command" not in r and "args" not in r for r in records)
         print(f"{mode}: {len(records)} decisions; canary absent; no proposed commands executed")
 
