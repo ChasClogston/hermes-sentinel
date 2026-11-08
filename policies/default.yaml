@@ -1,0 +1,20 @@
+version: 1
+defaults:
+  unknown_action: deny
+  unknown_destination: deny
+rules:
+  - id: deny-credential-upload
+    priority: 100
+    effect: deny
+    operations: [network_upload]
+    source_classes: [credential_file, private_key]
+  - id: approve-external-upload
+    priority: 80
+    effect: require_approval
+    operations: [network_upload]
+    destination_classes: [external_untrusted]
+  - id: allow-local-tests
+    priority: 50
+    effect: allow
+    operations: [test_execution]
+    destination_classes: [none]

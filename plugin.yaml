@@ -1,0 +1,10 @@
+name: hermes-sentinel
+version: 0.4.0
+description: "Audit-first, deterministic Hermes tool-action governance for macOS and Linux."
+author: "Hermes Sentinel"
+kind: standalone
+platforms:
+  - macos
+  - linux
+provides_hooks:
+  - pre_tool_call
