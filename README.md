@@ -22,8 +22,8 @@ Sentinel is an independent companion to Secret Guard. It does **not** copy Secre
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
-- Linux: Python tests run independently; **a live Linux Hermes installation has not yet been validated**.
-- A model-driven, end-to-end approval acceptance/denial test remains to be completed.
+- The Ubuntu CI lifecycle job checks actual Hermes plugin installation, synthetic audit dispatch and report output, disable, and removal in a disposable home.
+- A disposable macOS profile on v0.5.2 exercised model-driven approval and denial. Each proposal prompted separately after an allow-once decision.
 
 ## Quick start (isolated test profile only)
 
@@ -51,7 +51,7 @@ Test enforcement only in this disposable profile:
 export HERMES_SENTINEL_MODE=enforce
 ```
 
-**Enforcement is deliberately restrictive:** `pytest` requires Hermes approval, obvious credential file transfers are blocked, a recognized external transfer requests Hermes native approval, and all other unrecognized operations are blocked. This default policy is unsuitable for ordinary daily use.
+**Enforcement is deliberately restrictive:** recognized test commands require Hermes approval and the prompt displays their allowlisted command label, obvious credential file transfers are blocked, a recognized external transfer requests Hermes native approval, and all other unrecognized operations are blocked. This default policy is unsuitable for ordinary daily use.
 
 ### Remove
 

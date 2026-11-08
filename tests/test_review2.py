@@ -123,11 +123,23 @@ class Review2Tests(unittest.TestCase):
             self.assertEqual(request['action'],'approve')
             self.assertIn('network_request',request['message'])
             self.assertNotIn('network_upload',request['message'])
-            tests=h('terminal',{'command':'pytest','workdir':d})
-            self.assertEqual(tests['action'],'approve')
-            self.assertIn('approve-local-tests',tests['message'])
-            self.assertIn('workspace=',tests['message'])
-            self.assertNotIn('allow-local-tests',tests['message'])
+            for proposal, label in (
+                ('pytest', 'pytest'),
+                ('python  -m pytest', 'python -m pytest'),
+                ("python3 -m 'pytest'", 'python3 -m pytest'),
+            ):
+                with self.subTest(proposal=proposal):
+                    approval = h('terminal', {'command': proposal, 'workdir': d})
+                    self.assertEqual(approval['action'], 'approve')
+                    self.assertIn(f'command={label},', approval['message'])
+                    self.assertIn('approve-local-tests', approval['message'])
+                    self.assertIn('workspace=', approval['message'])
+                    self.assertNotIn('allow-local-tests', approval['message'])
+
+            extra = h('terminal', {'command': 'pytest --secret=value', 'workdir': d})
+            self.assertEqual(extra['action'], 'block')
+            self.assertNotIn('secret=value', extra['message'])
+            self.assertNotIn('python3 -m', (Path(d) / 'audit.jsonl').read_text())
 
 if __name__=='__main__':
     unittest.main()
