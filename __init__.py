@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 import tempfile
+import time
 from pathlib import Path
 from .sentinel.hermes_adapter import SentinelHook, BlockingHook
 
@@ -28,18 +29,24 @@ def _audit_key(state: Path) -> bytes:
                 os.unlink(temporary)
             except FileNotFoundError:
                 pass
-    fd = os.open(key_path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
-    try:
-        st = os.fstat(fd)
-        if st.st_mode & 0o077 or st.st_nlink != 1:
-            raise ValueError('unsafe audit key file')
-        with os.fdopen(fd, 'rb', closefd=False) as f:
-            key = f.read(33)
-    finally:
-        os.close(fd)
-    if len(key) != 32:
-        raise ValueError('invalid audit key length')
-    return key
+    # The publishing process briefly has two hard links (temp + final).
+    # Never accept a multiply-linked key: retry until its temp link is gone.
+    for attempt in range(40):
+        fd = os.open(key_path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+        try:
+            st = os.fstat(fd)
+            if st.st_mode & 0o077:
+                raise ValueError('unsafe audit key permissions')
+            if st.st_nlink == 1:
+                with os.fdopen(fd, 'rb', closefd=False) as f:
+                    key = f.read(33)
+                if len(key) != 32:
+                    raise ValueError('invalid audit key length')
+                return key
+        finally:
+            os.close(fd)
+        time.sleep(0.01)
+    raise ValueError('audit key still multiply linked')
 
 
 def register(ctx):
