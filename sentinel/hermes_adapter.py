@@ -22,6 +22,11 @@ _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'id_rsa',
               'id_dsa', 'id_ecdsa', 'id_ed25519', 'credentials.json',
               'auth.json', 'config.yaml', 'hosts.yml'}
 _PRIVATE_DIRS = {'.ssh', '.aws', '.kube', '.docker', '.gnupg'}
+_TEST_COMMANDS = {
+    ('pytest',): 'pytest',
+    ('python', '-m', 'pytest'): 'python -m pytest',
+    ('python3', '-m', 'pytest'): 'python3 -m pytest',
+}
 
 
 def _sensitive_path(raw: str) -> bool:
@@ -57,7 +62,7 @@ def normalize(tool_name: str, args: dict) -> Action:
         return Action('terminal', 'unknown')
     if not tok:
         return Action('terminal', 'unknown')
-    if tok in (['pytest'], ['python', '-m', 'pytest'], ['python3', '-m', 'pytest']):
+    if tuple(tok) in _TEST_COMMANDS:
         return Action('terminal', 'test_execution')
 
     # Do not approve a different binary simply because its basename is "curl".
@@ -146,23 +151,28 @@ class SentinelHook:
             if decision.verdict == 'pending':
                 # One approval key PER EVENT. Persistent/"always" approval grants
                 # from Hermes cannot authorize subsequent Sentinel decisions.
-                host = urlsplit(action.destination).hostname or 'unknown'
-                _, ui_path = safe_url_path(action.destination) if action.destination else (True, '[none]')
-                if action.operation == 'network_upload':
-                    _, ui_source = safe_source(shlex.split(args['command'])[3], args.get('workdir'))
-                else:
-                    ui_source = '[not applicable]'
                 base = args.get('workdir') if isinstance(args, dict) else None
                 workspace = Path(base).name if isinstance(base, str) and base else Path.cwd().name
                 if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,40}',workspace):
                     workspace = '[redacted]'
+                if action.operation == 'test_execution':
+                    label = _TEST_COMMANDS[tuple(shlex.split(args['command']))]
+                    context = f'command={label}, workspace={workspace}'
+                else:
+                    host = urlsplit(action.destination).hostname or 'unknown'
+                    _, ui_path = safe_url_path(action.destination) if action.destination else (True, '[none]')
+                    if action.operation == 'network_upload':
+                        _, ui_source = safe_source(shlex.split(args['command'])[3], args.get('workdir'))
+                    else:
+                        ui_source = '[not applicable]'
+                    context = (f'destination={host}, path={ui_path}, source={ui_source}, '
+                               f'workspace={workspace}, source_class={action.source_class}')
                 return {
                     'action': 'approve',
                     'rule_key': f'sentinel:{event_id}',
                     'message': (
                         f'Sentinel approval required: operation={decision.operation}, '
-                        f'destination={host}, path={ui_path}, source={ui_source}, '
-                        f'workspace={workspace}, source_class={action.source_class}, '
+                        f'{context}, '
                         f'policy={decision.rule_id}, event={event_id}. '
                         'Approve this exact request only.'
                     ),

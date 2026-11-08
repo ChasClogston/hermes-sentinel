@@ -39,3 +39,57 @@ jobs:
         run: |
           python -m sentinel.cli report --days 7
           python demo/report_smoke.py
+
+  hermes-linux-lifecycle:
+    name: Hermes lifecycle on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19
+          path: .ci-hermes
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: '0.12.13'
+      - name: Prepare pinned Hermes runtime
+        working-directory: .ci-hermes
+        run: uv sync --locked --no-dev --python 3.14
+      - name: Install, audit, disable and remove Sentinel
+        env:
+          HERMES_HOME: ${{ runner.temp }}/sentinel-hermes
+          HERMES_SENTINEL_MODE: audit
+        run: |
+          set -euo pipefail
+          plugin_repo="$PWD"
+          python="$PWD/.ci-hermes/.venv/bin/python"
+          hermes="$PWD/.ci-hermes/.venv/bin/hermes"
+          export HOME="$RUNNER_TEMP/sentinel-home"
+          mkdir -p "$HOME" "$HERMES_HOME" "$RUNNER_TEMP/sentinel-work"
+          cd "$RUNNER_TEMP/sentinel-work"
+
+          # Use the checkout's exact commit, including for PR merge test commits.
+          "$hermes" plugins install "file://$plugin_repo" --ref "$GITHUB_SHA" --yes-deps --enable
+          installed="$HERMES_HOME/plugins/hermes-sentinel"
+          test "$(git -C "$installed" rev-parse HEAD)" = "$GITHUB_SHA"
+
+          "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" enabled
+          PYTHONPATH="$installed" "$python" -m sentinel.cli report --days 7 | tee report.txt
+          grep -Eq 'Observed proposals[[:space:]]+3' report.txt
+          grep -Eq 'Unclassified[[:space:]]+1' report.txt
+          grep -Eq 'Hard-deny policy matches[[:space:]]+1' report.txt
+          grep -Eq 'Approval candidates[[:space:]]+1' report.txt
+          grep -Eq 'Audit-only observations[[:space:]]+3' report.txt
+
+          "$hermes" plugins disable hermes-sentinel
+          "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" disabled
+          "$hermes" plugins remove hermes-sentinel
+          test ! -e "$installed"
+          "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" removed
