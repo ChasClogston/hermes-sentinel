@@ -5,8 +5,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id"})
-VERDICTS = frozenset({"allowed", "blocked", "pending", "approved", "denied"})
+FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict"})
+VERDICTS = frozenset({"allowed", "blocked", "pending", "approved", "denied", "unclassified"})
 
 def append_event(path: str, event: dict) -> None:
     if not set(event).issubset(FIELDS):

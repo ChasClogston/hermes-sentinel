@@ -1,6 +1,6 @@
 """Strict Sentinel policy schema validation; reject ambiguous/unknown keys."""
 from __future__ import annotations
-import yaml
+import hermes_yaml as yaml
 
 _TOP = {'version', 'defaults', 'rules'}
 _DEFAULTS = {'unknown_action', 'unknown_destination'}

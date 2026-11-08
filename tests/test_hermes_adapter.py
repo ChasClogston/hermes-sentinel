@@ -30,7 +30,7 @@ class AdapterTests(unittest.TestCase):
             path = Path(d)/'audit.jsonl'
             hook = SentinelHook(str(ROOT/'policies/default.yaml'), str(path), b'x'*32, mode='audit')
             self.assertIsNone(hook('terminal', {'command':'python -c "print(1)"'}))
-            self.assertIn('"verdict":"blocked"', path.read_text())
+            self.assertIn('"verdict":"unclassified"', path.read_text())
 
     def test_audit_mode_error_does_not_block(self):
         with tempfile.TemporaryDirectory() as d:
