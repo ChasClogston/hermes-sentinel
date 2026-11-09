@@ -1,4 +1,4 @@
-"""Hermes Sentinel registration through public plugin APIs only."""
+"""Sentinel Governance registration through public plugin APIs only."""
 from __future__ import annotations
 import os
 import logging
@@ -65,7 +65,8 @@ def _audit_key(state: Path) -> bytes:
 
 def register(ctx):
     """Audit startup failures observe only; enforce failures register a veto."""
-    mode = os.environ.get('HERMES_SENTINEL_MODE', 'audit').strip().lower()
+    mode = os.environ.get('SENTINEL_GOVERNANCE_MODE',
+                          os.environ.get('HERMES_SENTINEL_MODE', 'audit')).strip().lower()
     try:
         if mode not in {'audit', 'enforce'}:
             raise ValueError('invalid Sentinel mode')
@@ -81,7 +82,7 @@ def register(ctx):
                                mode=mode, state_resolver=resolve_current_profile)
     except Exception as exc:
         logging.getLogger(__name__).warning(
-            'Sentinel initialization failure: %s', type(exc).__name__)
+            'Sentinel Governance initialization failure: %s', type(exc).__name__)
         # Audit must not turn a damaged journal into an agent-wide denial.
         # Invalid mode cannot be trusted as audit and remains fail-closed.
         if mode == 'audit':

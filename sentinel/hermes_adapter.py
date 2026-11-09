@@ -171,7 +171,7 @@ class SentinelHook:
                     'action': 'approve',
                     'rule_key': f'sentinel:{event_id}',
                     'message': (
-                        f'Sentinel approval required: operation={decision.operation}, '
+                        f'Sentinel Governance approval required: operation={decision.operation}, '
                         f'{context}, '
                         f'policy={decision.rule_id}, event={event_id}. '
                         'Approve this exact request only.'
@@ -179,16 +179,16 @@ class SentinelHook:
                 }
             return {
                 'action': 'block',
-                'message': f'Sentinel policy blocked this tool call (event {event_id}).'
+                'message': f'Sentinel Governance policy blocked this tool call (event {event_id}).'
             }
         except Exception as exc:
             # Never include exception text, which may embed raw arguments.
-            _LOG.warning('Sentinel hook failure: %s', type(exc).__name__)
+            _LOG.warning('Sentinel Governance hook failure: %s', type(exc).__name__)
             if self.mode == 'audit':
                 return None
             return {
                 'action': 'block',
-                'message': 'Sentinel evaluation unavailable; tool call blocked.'
+                'message': 'Sentinel Governance evaluation unavailable; tool call blocked.'
             }
 
 
@@ -196,7 +196,7 @@ class BlockingHook:
     """Emergency fallback when Sentinel initialization is misconfigured."""
     def __call__(self, tool_name: str, args: dict, **kwargs):
         return {'action': 'block',
-                'message': 'Sentinel startup health check failed; execution blocked.'}
+                'message': 'Sentinel Governance startup health check failed; execution blocked.'}
 
 
 class ObservingFailureHook:

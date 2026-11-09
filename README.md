@@ -1,9 +1,11 @@
-# Hermes Sentinel
+# Sentinel Governance
 
 **Experimental, audit-first action governance for Nous Research Hermes Agent.**
 Targets **macOS and Linux**; requires Python 3.11+ and Hermes 0.23.0+ (uses Hermes bundled `hermes_yaml`; no external PyYAML dependency).
 
 Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code, ingest secret values, or require Secret Guard installed.
+
+The plugin ID is `sentinel-governance`. Install it under that name and use `sentinel-governance report` for the audit summary. Existing installations can disable and remove the old plugin before installing this version. Both versions use the same profile-local audit journal. The legacy `sentinel` command and `HERMES_SENTINEL_MODE` setting remain available for existing scripts. If both mode settings are present, `SENTINEL_GOVERNANCE_MODE` takes precedence.
 
 ## What it actually does
 
@@ -34,21 +36,21 @@ python3 -m venv .venv
 hermes plugins validate . --install-deps
 ```
 
-Copy this plugin directory to an isolated `$HERMES_HOME/plugins/hermes-sentinel`; **do not use your default production home for initial tests**.
+Copy this plugin directory to an isolated `$HERMES_HOME/plugins/sentinel-governance`; **do not use your default production home for initial tests**.
 
 ```bash
-export HERMES_HOME="$HOME/hermes-sentinel-test-profile"
+export HERMES_HOME="$HOME/sentinel-governance-test-profile"
 mkdir -p "$HERMES_HOME/plugins"
-cp -R /path/to/hermes-sentinel "$HERMES_HOME/plugins/hermes-sentinel"
-export HERMES_SENTINEL_MODE=audit
-hermes plugins enable hermes-sentinel --no-allow-tool-override
-hermes plugins doctor --ci hermes-sentinel
+cp -R /path/to/sentinel-governance "$HERMES_HOME/plugins/sentinel-governance"
+export SENTINEL_GOVERNANCE_MODE=audit
+hermes plugins enable sentinel-governance --no-allow-tool-override
+hermes plugins doctor --ci sentinel-governance
 ```
 
 Test enforcement only in this disposable profile:
 
 ```bash
-export HERMES_SENTINEL_MODE=enforce
+export SENTINEL_GOVERNANCE_MODE=enforce
 ```
 
 **Enforcement is deliberately restrictive:** recognized test commands require Hermes approval and the prompt displays their allowlisted command label, obvious credential file transfers are blocked, a recognized external transfer requests Hermes native approval, and all other unrecognized operations are blocked. This default policy is unsuitable for ordinary daily use.
@@ -56,8 +58,8 @@ export HERMES_SENTINEL_MODE=enforce
 ### Remove
 
 ```bash
-hermes plugins disable hermes-sentinel
-hermes plugins remove hermes-sentinel
+hermes plugins disable sentinel-governance
+hermes plugins remove sentinel-governance
 ```
 
 A running gateway may require a restart to unload hooks. Audit files under `$HERMES_HOME/sentinel/` are not deleted by the remove command. Delete only the disposable test profile after verification.
@@ -116,15 +118,15 @@ The recognized curl form must include `-q` immediately after `curl`, disabling i
 - In default audit mode, recoverable initialization errors install a nonblocking hook and warn without printing error arguments. Enforcement mode and invalid mode fail closed when hook registration is possible.
 - Per-event keys prevent approval reuse, but Hermes can still store useless `session`/`always` grants in its allowlist; for Sentinel prompts those options behave as effectively single-use. Do not use auto-approval/YOLO configurations when testing enforcement.
 - **Approval fatigue is not solved by broad exemptions.** v0.5.1 remains audit-first and intentionally blocks unclassified tools under enforcement. The separate follow-on project is narrowly scoped, time-limited grant reuse with a hardened trust boundary; it is not represented as implemented here.
-- A terminal user should use `HERMES_SENTINEL_MODE=audit` for daily observation. Enforce mode is a strictly scoped research/demo control, not a drop-in general Hermes permission system or OS network sandbox.
+- A terminal user should use `SENTINEL_GOVERNANCE_MODE=audit` for daily observation. Enforce mode is a strictly scoped research/demo control, not a drop-in general Hermes permission system or OS network sandbox.
 
 ## v0.5.2 — Audit classification and report
 
 A default-deny policy decision for an action Sentinel cannot classify is still `blocked` **under enforcement**, but in **audit-only** records its displayed verdict is now `unclassified` with `classification: unclassified`, `policy_verdict: blocked`, and `execution_status: not_enforced`. Recognized hard-deny matches remain `blocked`, allowing incident review without drowning in ordinary unknown actions.
 
-The CLI `sentinel report --days 7` (or `python -m sentinel.cli report --days 7`) reads the active Hermes profile's `sentinel/audit.jsonl` and prints only aggregate counts. `--journal /path/to/synthetic.jsonl` is provided for testing. It counts **proposed tool calls**, not confirmed execution, and it separates policy matches, approval candidates, observations, and interception decisions. Existing v0.5.1 default-deny rows are recognized as unclassified using the policy ID. No individual target, command, or session identifier appears in the report.
+The CLI `sentinel-governance report --days 7` (or `python -m sentinel.cli report --days 7`) reads the active Hermes profile's `sentinel/audit.jsonl` and prints only aggregate counts. `--journal /path/to/synthetic.jsonl` is provided for testing. It counts **proposed tool calls**, not confirmed execution, and it separates policy matches, approval candidates, observations, and interception decisions. Existing v0.5.1 default-deny rows are recognized as unclassified using the policy ID. No individual target, command, or session identifier appears in the report.
 
-`sentinel report` does not read another profile by default, make external requests, or prove that a high-risk operation actually executed. If the current profile has no journal, the report shows zeros. Keep audit mode on for unobtrusive observability; enforcement is still narrow and may block many routine actions. The report helps quantify that prospective friction **before** choosing to enable enforcement.
+`sentinel-governance report` does not read another profile by default, make external requests, or prove that a high-risk operation actually executed. If the current profile has no journal, the report shows zeros. Keep audit mode on for unobtrusive observability; enforcement is still narrow and may block many routine actions. The report helps quantify that prospective friction **before** choosing to enable enforcement.
 
 **YAML compatibility:** Policies now use Hermes's `hermes_yaml.safe_load` implementation rather than importing PyYAML. The cross-platform GitHub test matrix fetches the Hermes YAML compatibility module from a pinned Hermes source commit for CI only; plugin installations do not fetch this source themselves.
 

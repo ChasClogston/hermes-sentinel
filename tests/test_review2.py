@@ -70,7 +70,11 @@ class Review2Tests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 with patch.object(plugin,'_audit_key',side_effect=ValueError('unsafe')):
                     ctx=Ctx()
-                    with patch.dict(os.environ,{'HERMES_SENTINEL_MODE':'audit','HERMES_HOME':d}):
+                    with patch.dict(os.environ, {
+                        'SENTINEL_GOVERNANCE_MODE': 'audit',
+                        'HERMES_SENTINEL_MODE': 'enforce',
+                        'HERMES_HOME': d,
+                    }):
                         plugin.register(ctx)
                     self.assertIsNone(ctx.handler('read_file',{'path':'test'}))
                     ctx2=Ctx()

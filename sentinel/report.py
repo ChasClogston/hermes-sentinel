@@ -88,12 +88,12 @@ def display_report(result: dict, use_color: bool = False) -> str:
         ('Policy allows', c['policy_allows']),
         ('Audit-only observations', c['audit_only']),
         ('Enforcement requests', c['approval_requests']),
-        ('Sentinel block decisions', c['actual_sentinel_blocks']),
+        ('Sentinel Governance block decisions', c['actual_sentinel_blocks']),
         ('Invalid/ignored rows', result['invalid_rows']),
     )
     # All labels are constants and all values are validated aggregate integers.
     lines = ['+--------------------------------------------------+',
-             '| HERMES SENTINEL // AUDIT REPORT                 |',
+             f'| {"SENTINEL GOVERNANCE // AUDIT REPORT":<48} |',
              '+--------------------------------------------------+',
              f'| Window: last {result["days"]:>3} days                             |']
     for name, value in rows:
