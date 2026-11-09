@@ -1,4 +1,4 @@
-name: Sentinel tests
+name: Sentinel Governance tests
 on:
   push:
   pull_request:
@@ -37,7 +37,7 @@ jobs:
         env:
           PYTHONPATH: .ci-hermes
         run: |
-          python -m sentinel.cli report --days 7
+          sentinel-governance report --days 7
           python demo/report_smoke.py
 
   hermes-linux-lifecycle:
@@ -62,22 +62,22 @@ jobs:
       - name: Prepare pinned Hermes runtime
         working-directory: .ci-hermes
         run: uv sync --locked --no-dev --python 3.14
-      - name: Install, audit, disable and remove Sentinel
+      - name: Install, audit, disable and remove Sentinel Governance
         env:
-          HERMES_HOME: ${{ runner.temp }}/sentinel-hermes
-          HERMES_SENTINEL_MODE: audit
+          HERMES_HOME: ${{ runner.temp }}/sentinel-governance-hermes
+          SENTINEL_GOVERNANCE_MODE: audit
         run: |
           set -euo pipefail
           plugin_repo="$PWD"
           python="$PWD/.ci-hermes/.venv/bin/python"
           hermes="$PWD/.ci-hermes/.venv/bin/hermes"
-          export HOME="$RUNNER_TEMP/sentinel-home"
-          mkdir -p "$HOME" "$HERMES_HOME" "$RUNNER_TEMP/sentinel-work"
-          cd "$RUNNER_TEMP/sentinel-work"
+          export HOME="$RUNNER_TEMP/sentinel-governance-home"
+          mkdir -p "$HOME" "$HERMES_HOME" "$RUNNER_TEMP/sentinel-governance-work"
+          cd "$RUNNER_TEMP/sentinel-governance-work"
 
           # Use the checkout's exact commit, including for PR merge test commits.
           "$hermes" plugins install "file://$plugin_repo" --ref "$GITHUB_SHA" --yes-deps --enable
-          installed="$HERMES_HOME/plugins/hermes-sentinel"
+          installed="$HERMES_HOME/plugins/sentinel-governance"
           test "$(git -C "$installed" rev-parse HEAD)" = "$GITHUB_SHA"
 
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" enabled
@@ -88,8 +88,8 @@ jobs:
           grep -Eq 'Approval candidates[[:space:]]+1' report.txt
           grep -Eq 'Audit-only observations[[:space:]]+3' report.txt
 
-          "$hermes" plugins disable hermes-sentinel
+          "$hermes" plugins disable sentinel-governance
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" disabled
-          "$hermes" plugins remove hermes-sentinel
+          "$hermes" plugins remove sentinel-governance
           test ! -e "$installed"
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" removed

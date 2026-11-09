@@ -1,7 +1,7 @@
-name: hermes-sentinel
-version: 0.5.3
+name: sentinel-governance
+version: 0.5.4
 description: "Audit-first, deterministic Hermes tool-action governance for macOS and Linux."
-author: "Hermes Sentinel"
+author: "Sentinel Governance"
 kind: standalone
 requires_hermes: ">=0.23.0"
 platforms:

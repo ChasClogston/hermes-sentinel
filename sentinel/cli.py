@@ -16,7 +16,7 @@ def _journal_default() -> Path:
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0]=='report':
-        p=argparse.ArgumentParser(prog='sentinel report', description='Sanitized audit aggregates only')
+        p=argparse.ArgumentParser(prog='sentinel-governance report', description='Sanitized audit aggregates only')
         p.add_argument('--days', type=int,default=7)
         p.add_argument('--journal',type=Path, default=None,
                        help='Alternative synthetic/test journal path')
@@ -28,12 +28,12 @@ def main(argv=None) -> int:
             return 0
         except (ValueError,OSError) as e:
             # Never print exception messages (can contain a private path).
-            print(f'Sentinel report unavailable ({type(e).__name__})',file=sys.stderr)
+            print(f'Sentinel Governance report unavailable ({type(e).__name__})',file=sys.stderr)
             return 2
 
     from .config import load_policy
     from .engine import Action,evaluate
-    p=argparse.ArgumentParser(prog='sentinel')
+    p=argparse.ArgumentParser(prog='sentinel-governance')
     p.add_argument('--policy',default=str(Path(__file__).parent.parent/'policies'/'default.yaml'))
     p.add_argument('--operation',required=True)
     p.add_argument('--tool',default='terminal')
@@ -45,7 +45,7 @@ def main(argv=None) -> int:
     colors={'allowed':'\x1b[92m','pending':'\x1b[93m','blocked':'\x1b[91m'}
     prefix=colors[decision.verdict] if use_color else ''
     suffix='\x1b[0m' if use_color else ''
-    print(f'+----------------------------------------+\n| HERMES SENTINEL // POLICY DECISION     |\n+----------------------------------------+\n| {prefix}{decision.verdict.upper():<38}{suffix} |\n| Rule: {decision.rule_id[:31]:<32} |\n+----------------------------------------+')
+    print(f'+----------------------------------------+\n| SENTINEL GOVERNANCE // POLICY DECISION |\n+----------------------------------------+\n| {prefix}{decision.verdict.upper():<38}{suffix} |\n| Rule: {decision.rule_id[:31]:<32} |\n+----------------------------------------+')
     return 0 if decision.verdict=='allowed' else 2
 
 if __name__=='__main__':
