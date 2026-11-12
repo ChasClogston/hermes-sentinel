@@ -24,7 +24,7 @@ The plugin ID is `sentinel-governance`. Install it under that name and use `sent
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
-- The Ubuntu CI lifecycle job checks actual Hermes plugin installation, synthetic audit dispatch and report output, disable, and removal in a disposable home.
+- The macOS and Ubuntu CI lifecycle jobs check actual Hermes plugin installation, synthetic audit dispatch, replay, permitted alternatives, disable, and removal in disposable homes.
 - A disposable macOS profile on v0.5.2 exercised model-driven approval and denial. Each proposal prompted separately after an allow-once decision.
 
 ## Quick start (isolated test profile only)
