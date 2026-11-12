@@ -36,12 +36,14 @@ class FakeDB:
         self.path = path
         self.opened.append(path)
 
-    def list_sessions_rich(self, limit, order_by_last_active):
+    def list_sessions_rich(self, limit, order_by_last_active, include_archived):
         assert order_by_last_active
+        assert include_archived
         return self.sessions[:limit]
 
-    def get_messages(self, session_id, latest, limit, offset):
+    def get_messages(self, session_id, latest, limit, offset, include_compacted):
         assert latest
+        assert include_compacted
         return list(reversed(list(reversed(self.messages))[offset:offset + limit]))
 
     def close(self):

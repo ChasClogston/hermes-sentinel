@@ -27,13 +27,18 @@ try:
         db.append_message('replay-fixture', 'assistant', timestamp=timestamp,
             tool_calls=[{'id': f'fixture-{index}', 'type': 'function', 'function': {
                 'name': 'terminal', 'arguments': json.dumps({'command': command})}}])
+    db.create_session('archived-replay-fixture', 'cli')
+    db.append_message('archived-replay-fixture', 'assistant', timestamp=now,
+        tool_calls=[{'id': 'archived-call', 'type': 'function', 'function': {
+            'name': 'terminal', 'arguments': json.dumps({'command': 'pytest'})}}])
+    db.set_session_archived('archived-replay-fixture', True, notify=False)
 finally:
     db.close()
 before = hashlib.sha256(path.read_bytes()).digest()
 result = subprocess.run([sys.executable, '-m', 'sentinel.cli', 'replay', '--days', '14'],
                         capture_output=True, text=True, timeout=10)
 assert result.returncode == 0, result.stderr
-for expected in ('Allowed: 0', 'Approval candidates: 1', 'Blocked: 2',
+for expected in ('Allowed: 0', 'Approval candidates: 2', 'Blocked: 2',
                  'Of those, unclassified: 1', 'Selected history scan complete.'):
     assert expected in result.stdout, result.stdout
 for private in ('REPLAY_PRIVATE_CANARY_487', 'pytest', '.env', 'example.invalid', str(home)):

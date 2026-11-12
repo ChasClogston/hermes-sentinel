@@ -76,7 +76,8 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
                 continue
             db = SessionDB(path, read_only=True)
             remaining = MAX_SESSIONS - result['sessions']
-            sessions = db.list_sessions_rich(limit=remaining, order_by_last_active=True)
+            sessions = db.list_sessions_rich(limit=remaining, order_by_last_active=True,
+                                             include_archived=True)
             for session in sessions:
                 result['sessions'] += 1
                 offset = 0
@@ -86,7 +87,8 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
                         return result
                     remaining = MAX_MESSAGES - result['messages']
                     messages = db.get_messages(session['id'], latest=True,
-                                               limit=min(_PAGE_SIZE, remaining), offset=offset)
+                                               limit=min(_PAGE_SIZE, remaining), offset=offset,
+                                               include_compacted=True)
                     if not messages:
                         break
                     offset += len(messages)
