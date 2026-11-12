@@ -15,6 +15,26 @@ def _journal_default() -> Path:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'replay':
+        parser = argparse.ArgumentParser(prog='sentinel-governance replay',
+                                         description='Counts-only estimates from read-only Hermes history')
+        parser.add_argument('--policy', type=Path,
+                            default=Path(__file__).parent.parent / 'policies' / 'default.yaml')
+        parser.add_argument('--days', type=int, default=14)
+        parser.add_argument('--all-profiles', action='store_true',
+                            help='Include other profiles, which may contain other projects\' history')
+        args = parser.parse_args(argv[1:])
+        from .config import load_policy
+        from .replay import discover_databases, display_replay, summarize_replay
+        try:
+            result = summarize_replay(discover_databases(args.all_profiles),
+                                      load_policy(str(args.policy)), days=args.days)
+            print(display_replay(result, days=args.days))
+            return 0
+        except Exception:
+            print('Sentinel Governance replay unavailable. Check the policy and Hermes installation.',
+                  file=sys.stderr)
+            return 2
     if argv and argv[0]=='report':
         p=argparse.ArgumentParser(prog='sentinel-governance report', description='Sanitized audit aggregates only')
         p.add_argument('--days', type=int,default=7)
@@ -50,3 +70,4 @@ def main(argv=None) -> int:
 
 if __name__=='__main__':
     raise SystemExit(main())
+
