@@ -25,6 +25,6 @@ Ordinary parent signals are recorded as shutdown requests, observed by short pol
 
 Focused regressions inject all three ordinary signals at deletion and worker-termination boundaries, force marker-first filesystem enumeration, and inject a content deletion error. Both lifecycle jobs run these tests plus the stable Linux temp-root and preserved macOS system-root checks. Test subprocesses inherit the caller-selected Sentinel package path, so the documented unit-test command works from a bare checkout with the Hermes dependencies available.
 
-Snapshots left in a different root by older XDG-based builds are not discovered automatically; known legacy locations require ownership-checked inspection/cleanup. Linux `/tmp` capacity and backing filesystem remain system-configured; this change does not promise unlimited or disk-backed temporary space. The rare worker-startup SIGINT traceback containing standard-library paths and the existing timeout/skip accounting are outside these two fixes.
+Snapshots left in a different root by older XDG-based builds are not discovered automatically; known legacy locations require ownership-checked inspection/cleanup. Linux `/tmp` capacity and backing filesystem remain system-configured; this change does not promise unlimited or disk-backed temporary space. The rare worker-startup SIGINT traceback containing standard-library paths is accepted as is. Unmarked directories remain deliberately unswept.
 
 A copy that exhausts the replay time budget marks the sample limited; it does not increment failed/skipped-database accounting.
