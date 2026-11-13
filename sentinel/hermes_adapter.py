@@ -17,6 +17,11 @@ from .engine import Action, evaluate
 from .source_policy import safe_source, safe_url_path
 
 _LOG = logging.getLogger(__name__)
+_REFUSAL_GUIDANCE = (
+    'Continue with an alternative that complies with the policy and existing authorization. '
+    'Preserve the restriction expressed by this rule. '
+    'Ask the user if completing the task requires an exception or additional authorization.'
+)
 _SHELL_META = re.compile(r'[;&|`<>\n\r$*?\[\]{}]')
 _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'id_rsa',
               'id_dsa', 'id_ecdsa', 'id_ed25519', 'credentials.json',
@@ -179,7 +184,8 @@ class SentinelHook:
                 }
             return {
                 'action': 'block',
-                'message': f'Sentinel Governance policy blocked this tool call (event {event_id}).'
+                'message': (f'Sentinel Governance policy blocked this tool call (event {event_id}). '
+                            + _REFUSAL_GUIDANCE)
             }
         except Exception as exc:
             # Never include exception text, which may embed raw arguments.
@@ -188,7 +194,8 @@ class SentinelHook:
                 return None
             return {
                 'action': 'block',
-                'message': 'Sentinel Governance evaluation unavailable; tool call blocked.'
+                'message': ('Sentinel Governance evaluation unavailable; tool call blocked. '
+                            + _REFUSAL_GUIDANCE)
             }
 
 
@@ -196,10 +203,12 @@ class BlockingHook:
     """Emergency fallback when Sentinel initialization is misconfigured."""
     def __call__(self, tool_name: str, args: dict, **kwargs):
         return {'action': 'block',
-                'message': 'Sentinel Governance startup health check failed; execution blocked.'}
+                'message': ('Sentinel Governance startup health check failed; execution blocked. '
+                            + _REFUSAL_GUIDANCE)}
 
 
 class ObservingFailureHook:
     """Audit-mode startup fallback: never issue vetoes."""
     def __call__(self, tool_name: str, args: dict, **kwargs):
         return None
+

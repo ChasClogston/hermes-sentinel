@@ -20,11 +20,11 @@ The plugin ID is `sentinel-governance`. Install it under that name and use `sent
 
 ## Demonstrated compatibility
 
-- On macOS, Hermes 0.23.0: 52 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
+- On macOS, Hermes 0.23.0: 59 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
-- The Ubuntu CI lifecycle job checks actual Hermes plugin installation, synthetic audit dispatch and report output, disable, and removal in a disposable home.
+- The macOS and Ubuntu CI lifecycle jobs check actual Hermes plugin installation, synthetic audit dispatch, replay, permitted alternatives, disable, and removal in disposable homes.
 - A disposable macOS profile on v0.5.2 exercised model-driven approval and denial. Each proposal prompted separately after an allow-once decision.
 
 ## Quick start (isolated test profile only)
@@ -94,7 +94,7 @@ Independent repository and release cadence from Secret Guard. No vendored code o
 
 ## Required disclosures
 
-Sentinel itself makes no third-party network requests, executes no shell commands, runs no background processes, and reads no external credential stores. It inspects the proposed command arguments passed by Hermes to its hook and reads its own policy YAML and locally generated audit key. It writes only a local HMAC key and sanitized JSONL records under the active Hermes home. It does not store raw command arguments, URLs, or secret values. Hermes and other tools may separately log or transmit their own data.
+The runtime hook inspects proposed tool arguments in memory and reads its policy YAML and locally generated audit key. It writes a local HMAC key and sanitized JSONL journal under the active Hermes home. The hook initiates no network requests or subprocesses and reads no external credential stores. The user-invoked replay CLI reads stored tool arguments from selected Hermes history databases through the public read-only SessionDB interface. It uses a temporary worker process to enforce a two-second scan budget. Only aggregate integer counts return to the CLI. Worker diagnostics are suppressed, and replay writes no journal entries or history copies. Hermes and other tools have their own logging behavior.
 
 ## v0.5 security review remediation
 
@@ -131,3 +131,28 @@ The CLI `sentinel-governance report --days 7` (or `python -m sentinel.cli report
 **YAML compatibility:** Policies now use Hermes's `hermes_yaml.safe_load` implementation rather than importing PyYAML. The cross-platform GitHub test matrix fetches the Hermes YAML compatibility module from a pinned Hermes source commit for CI only; plugin installations do not fetch this source themselves.
 
 **Catalog admission caveat:** Hermes 0.23.0 currently emits a rule-9 warning for the direct `import hermes_yaml` in this plugin. That module is a bundled Hermes YAML compatibility utility and avoids the external PyYAML dependency, but the loader is not formally listed as a public plugin API. We disclose the warning rather than conceal the import; catalog maintainers should confirm whether this use is acceptable.
+
+
+## Refusals and permitted alternatives
+
+A policy block now instructs the agent to continue with an alternative that complies with the policy and its existing authorization. It asks the user when completing the task requires an exception or additional authorization. Each proposed alternative goes through the usual policy evaluation. Explicit allow rules continue automatically, approval rules request approval, and deny rules block. The default policy still requires approval for test runners and denies unrecognized operations.
+
+The integration check exercises actual Hermes tool dispatch with an isolated test policy. It blocks one proposal, executes an explicitly allowed local fixture without requesting approval, then verifies that an approval-required proposal still requests approval. This checks the permission path. Model compliance with the wording can vary.
+
+## Counts only history replay
+
+Run these commands from a Hermes runtime with the plugin available on its Python path.
+
+```bash
+sentinel-governance replay --days 14
+sentinel-governance replay --policy /path/to/proposed-policy.yaml --days 7
+sentinel-governance replay --all-profiles --days 14
+# Within an installed plugin directory
+python -m sentinel.cli replay --days 14
+```
+
+Replay estimates enforce-mode decisions using the current classifier and selected policy. It reads the current profile by default. The explicit `--all-profiles` flag also includes other profiles, which can contain other projects' history. The CLI outputs only counts by operation and verdict, including unclassified and skipped calls. It runs separately from live model sessions.
+
+A scan examines at most 2,000 stored calls, 2,000 messages, and 200 sessions, with a two-second worker deadline. It includes archived sessions and retained compacted messages through Hermes's public history API. Newest messages are considered first within each session. With multiple profiles, the current profile is visited first and the remaining selected profiles follow. Missing, unreadable, or symlinked database files are skipped. Malformed calls and messages outside the selected date window are counted separately. The output marks bounded or unreadable samples as incomplete.
+
+Historical source paths are evaluated against the current filesystem. Files that moved or disappeared can affect classification. These estimates describe proposed actions under today's policy and filesystem context. They do not establish historical execution or approval outcomes. Replay preserves the existing journal schema and runtime policy defaults.

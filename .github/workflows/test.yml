@@ -40,9 +40,13 @@ jobs:
           sentinel-governance report --days 7
           python demo/report_smoke.py
 
-  hermes-linux-lifecycle:
-    name: Hermes lifecycle on Linux
-    runs-on: ubuntu-latest
+  hermes-lifecycle:
+    name: Hermes lifecycle on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -88,8 +92,19 @@ jobs:
           grep -Eq 'Approval candidates[[:space:]]+1' report.txt
           grep -Eq 'Audit-only observations[[:space:]]+3' report.txt
 
+          HERMES_HOME="$RUNNER_TEMP/sentinel-replay-fixture" PYTHONPATH="$installed" \
+            "$python" "$plugin_repo/tests/integration/replay_fixture.py"
+
+          behavior_home="$RUNNER_TEMP/sentinel-alternative-fixture"
+          mkdir -p "$behavior_home/plugins"
+          cp -R "$installed" "$behavior_home/plugins/sentinel-governance"
+          printf 'plugins:\n  enabled:\n    - sentinel-governance\n' > "$behavior_home/config.yaml"
+          HERMES_HOME="$behavior_home" PYTHONPATH="$behavior_home/plugins/sentinel-governance" \
+            "$python" "$plugin_repo/tests/integration/permitted_alternative.py"
+
           "$hermes" plugins disable sentinel-governance
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" disabled
           "$hermes" plugins remove sentinel-governance
           test ! -e "$installed"
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" removed
+
