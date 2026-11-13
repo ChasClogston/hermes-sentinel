@@ -13,7 +13,7 @@ from unittest.mock import patch
 from sentinel.replay import summarize_replay
 from test_replay import FakeDB
 import test_replay as replay_tests
-from replay_process_probe import run_signal_case
+from replay_process_probe import probe_environment, run_signal_case
 
 
 class ReplayCleanupTests(unittest.TestCase):
@@ -45,7 +45,7 @@ class ReplayCleanupTests(unittest.TestCase):
                 path.write_bytes(b'SYNTHETIC_HISTORY')
                 paths.append(str(path))
             run = subprocess.run([sys.executable, str(Path(__file__).with_name('replay_process_probe.py')),
-                                  name, str(root), *paths], capture_output=True, timeout=10)
+                                  name, str(root), *paths], capture_output=True, timeout=10, env=probe_environment())
             self.assertEqual(run.returncode, 0, run.stderr.decode())
             return json.loads((root / 'result.json').read_text()), int((root / 'attempts').read_text())
 
@@ -108,7 +108,7 @@ class ReplayCleanupTests(unittest.TestCase):
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 try:
                     result = subprocess.run([sys.executable, str(Path(__file__).with_name('replay_process_probe.py')),
-                        'sweep', str(root)], capture_output=True, timeout=2)
+                        'sweep', str(root)], capture_output=True, timeout=2, env=probe_environment())
                 except subprocess.TimeoutExpired:
                     self.fail('Startup blocked on another replay lease')
             self.assertEqual(result.returncode, 0)
@@ -133,7 +133,7 @@ class ReplayCleanupTests(unittest.TestCase):
         self.assertEqual(result['limited'], 1)
         self.assertEqual(attempts, 2)
 
-    def test_temp_root_uses_private_runtime_outside_profiles(self):
+    def test_linux_temp_root_ignores_xdg_and_tmpdir(self):
         from sentinel.replay_temp import temp_root
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -141,10 +141,22 @@ class ReplayCleanupTests(unittest.TestCase):
             for path in (home, runtime, profile):
                 path.mkdir(mode=0o700)
             with patch('sentinel.replay_temp.sys.platform', 'linux'):
-                with patch.dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(runtime)):
-                    self.assertEqual(temp_root([profile/'state.db']), runtime.resolve())
-                with patch.dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(profile)):
+                with patch.dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(runtime), TMPDIR=str(runtime)):
                     self.assertEqual(temp_root([profile/'state.db']), Path('/tmp'))
+                with patch.dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR='', TMPDIR=''):
+                    self.assertEqual(temp_root([profile/'state.db']), Path('/tmp'))
+
+    def test_macos_uses_system_private_temp_not_environment(self):
+        from sentinel.replay_temp import temp_root
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home, system, runtime, profile = (root/name for name in ('home','system','runtime','profile'))
+            for path in (home,system,runtime,profile):
+                path.mkdir(mode=0o700)
+            with patch('sentinel.replay_temp.sys.platform', 'darwin'):
+                with patch('sentinel.replay_temp.os.confstr', return_value=str(system)):
+                    with patch.dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(runtime), TMPDIR=str(runtime)):
+                        self.assertEqual(temp_root([profile/'state.db']), system.resolve())
 
     def test_non_main_thread_replay_is_rejected_before_creating_files(self):
         import threading

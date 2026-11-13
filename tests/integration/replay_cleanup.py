@@ -12,6 +12,7 @@ from hermes_state import SessionDB
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from replay_process_probe import run_signal_case
 from test_replay_cleanup import ReplayCleanupTests, ReplayErrorCountingTests
+from test_cleanup_boundaries import CleanupBoundaryTests
 
 
 def main():
@@ -45,12 +46,15 @@ def main():
              'test_stale_sweep_preserves_fresh_active_unmarked_and_symlinked_directories',
              'test_exclusively_leased_stale_snapshot_does_not_block_startup',
              'test_global_call_budget_is_not_reset_for_each_database',
-             'test_stale_age_is_rechecked_after_ownership_lease')
+             'test_stale_age_is_rechecked_after_ownership_lease',
+             'test_linux_temp_root_ignores_xdg_and_tmpdir',
+             'test_macos_uses_system_private_temp_not_environment')
     suite = unittest.TestSuite(ReplayCleanupTests(name) for name in names)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ReplayErrorCountingTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CleanupBoundaryTests))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     assert result.wasSuccessful(), 'Replay lifetime regression failed'
-    print('Replay cleanup: SIGTERM/SIGHUP, parent SIGKILL during/before copy, source integrity, leased stale sweep, partial counts, global budgets and one-change retry passed.')
+    print('Replay cleanup: SIGTERM/SIGHUP, parent SIGKILL during/before copy, source integrity, leased stale sweep, partial counts, global budgets, one-change retry, signals during removal/worker shutdown, marker-last deletion and stable Linux temp root passed.')
 
 
 if __name__ == '__main__':

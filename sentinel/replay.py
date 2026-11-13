@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .engine import evaluate
 from .hermes_adapter import normalize
-from .replay_temp import (lease, remove_scratch, scratch_directory, sweep_stale,
+from .replay_temp import (cleanup_signals, lease, remove_scratch, scratch_directory, sweep_stale,
                           temp_root as _temp_root, termination_handlers)
 
 MAX_CALLS = 2_000
@@ -280,8 +280,9 @@ def _worker(paths, policy, cutoff, now, connection, deadline, parent_pid, scratc
                         finally:
                             # Every attempt has a unique directory beneath the
                             # leased scratch root, including incomplete copies.
-                            if directory.exists():
-                                shutil.rmtree(directory)
+                            with cleanup_signals():
+                                if directory.exists():
+                                    shutil.rmtree(directory)
                     emit(_snapshot(result))
                     if result['limited']:
                         break
@@ -312,7 +313,7 @@ def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS
         raise ValueError('invalid replay window')
     if not 0 < seconds <= MAX_SECONDS:
         raise ValueError('invalid replay budget')
-    with termination_handlers():
+    with termination_handlers() as stop_requested:
         now = time.time() if now is None else now
         result = _empty()
         paths = list(dict.fromkeys(map(Path, paths)))
@@ -329,7 +330,7 @@ def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS
                 result['databases_skipped'] += 1
             except ValueError:
                 result['databases_skipped'] += 1
-        if not usable:
+        if not usable or stop_requested():
             result['finished'] = 1
             return result
         deadline = time.monotonic() + seconds
@@ -341,9 +342,9 @@ def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS
             try:
                 process.start()
                 writer.close()
-                while time.monotonic() < deadline:
-                    if not reader.poll(max(0, deadline - time.monotonic())):
-                        break
+                while time.monotonic() < deadline and not stop_requested():
+                    if not reader.poll(min(0.05, max(0, deadline - time.monotonic()))):
+                        continue
                     try:
                         snapshot = reader.recv()
                     except EOFError:
@@ -357,17 +358,18 @@ def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS
                 if not result['finished']:
                     result['limited'] = 1
             finally:
-                writer.close()
-                reader.close()
-                if process.pid is not None:
-                    if process.is_alive():
-                        process.terminate()
-                    process.join(timeout=0.1)
-                    if process.is_alive():
-                        process.kill()
+                with cleanup_signals():
+                    writer.close()
+                    reader.close()
+                    if process.pid is not None:
+                        if process.is_alive():
+                            process.terminate()
                         process.join(timeout=0.1)
-                    if not process.is_alive():
-                        process.close()
+                        if process.is_alive():
+                            process.kill()
+                            process.join(timeout=0.1)
+                        if not process.is_alive():
+                            process.close()
         return result
 
 

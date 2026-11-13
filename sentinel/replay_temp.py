@@ -17,16 +17,16 @@ _PREFIX = 'sentinel-replay-'
 _MARKER = '.sentinel-replay-v1'
 _CONTENT = b'sentinel-governance-replay-v1\n'
 _STALE_SECONDS = 60
+_TERMINATION_SIGNALS = {signal.SIGINT, signal.SIGTERM, signal.SIGHUP}
 
 
 def temp_root(paths):
-    """Prefer an OS/user-private temp root outside HOME and selected profiles."""
+    """Use the macOS system private root or stable /tmp; ignore env temp roots."""
     excluded = [Path.home().resolve(), *(Path(p).parent.resolve() for p in paths)]
     candidates = []
     if sys.platform == 'darwin':
         with contextlib.suppress(ValueError, OSError):
             candidates.append(os.confstr('CS_DARWIN_USER_TEMP_DIR'))
-    candidates.append(os.environ.get('XDG_RUNTIME_DIR'))
     for raw in candidates:
         if not raw:
             continue
@@ -44,16 +44,55 @@ def temp_root(paths):
     return Path('/tmp')
 
 
+@contextlib.contextmanager
+def cleanup_signals():
+    """Finish destructive cleanup before delivering ordinary pending signals."""
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, _TERMINATION_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
 def remove_scratch(path, identity):
-    """Remove only the exact private directory this invocation created/opened."""
+    """Remove this invocation's exact private directory, ownership marker last."""
     try:
         info = path.lstat()
     except FileNotFoundError:
         return
-    if (stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid()
-            and stat.S_IMODE(info.st_mode) == 0o700
-            and (info.st_dev, info.st_ino) == identity):
-        shutil.rmtree(path)
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o700
+            or (info.st_dev, info.st_ino) != identity):
+        return
+    with cleanup_signals():
+        try:
+            directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            return
+        try:
+            current = os.fstat(directory)
+            if ((current.st_dev, current.st_ino) != identity
+                    or current.st_uid != os.getuid()
+                    or stat.S_IMODE(current.st_mode) != 0o700):
+                return
+            # Work relative to the verified directory descriptor. Never follow
+            # child symlinks, and leave the marker if any data removal fails.
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.name == _MARKER:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        shutil.rmtree(entry.name, dir_fd=directory)
+                    else:
+                        os.unlink(entry.name, dir_fd=directory)
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(_MARKER, dir_fd=directory)
+            with contextlib.suppress(FileNotFoundError):
+                value = path.lstat()
+                if (value.st_dev, value.st_ino) == identity:
+                    path.rmdir()
+        finally:
+            os.close(directory)
 
 
 @contextlib.contextmanager
@@ -125,17 +164,19 @@ def termination_handlers():
     if threading.current_thread() is not threading.main_thread():
         raise ValueError('history replay requires the main thread')
     previous = {}
-    stopping = False
+    requested = None
     def stop(signum, frame):
-        nonlocal stopping
-        # A second ordinary signal must not interrupt the cleanup already begun.
-        if not stopping:
-            stopping = True
-            raise SystemExit(128 + signum)
+        nonlocal requested
+        # Never inject an asynchronous exception into a finally block. The
+        # parent observes this request, cleans up, then exits with signal status.
+        if requested is None:
+            requested = signum
     try:
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        for sig in _TERMINATION_SIGNALS:
             previous[sig] = signal.signal(sig, stop)
-        yield
+        yield lambda: requested is not None
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+        if requested is not None:
+            raise SystemExit(128 + requested)

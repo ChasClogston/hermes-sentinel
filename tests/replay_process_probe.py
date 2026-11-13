@@ -12,6 +12,15 @@ from unittest.mock import patch
 import sentinel.replay as replay
 
 
+def probe_environment():
+    # Preserve the package selected by the calling test (including a historical
+    # source for regression checks), even without an editable installation.
+    env = dict(os.environ)
+    package = str(Path(replay.__file__).resolve().parents[1])
+    env['PYTHONPATH'] = package + os.pathsep + env.get('PYTHONPATH', '')
+    return env
+
+
 class Reader:
     def __init__(self, stream, callback):
         self.stream, self.callback = stream, callback
@@ -85,7 +94,7 @@ def run_signal_case(control, source, signum, scenario='signals'):
     """Signal the parent during actual copying; verify cleanup and worker stop."""
     control.mkdir()
     process = subprocess.Popen([sys.executable, __file__, scenario, str(control), str(source)],
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=probe_environment())
     scratch, worker = None, None
     try:
         ready = control / 'ready.json'
