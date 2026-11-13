@@ -95,6 +95,12 @@ jobs:
           HERMES_HOME="$RUNNER_TEMP/sentinel-replay-fixture" PYTHONPATH="$installed" \
             "$python" "$plugin_repo/tests/integration/replay_fixture.py"
 
+          HERMES_HOME="$RUNNER_TEMP/sentinel-review61-fixture" PYTHONPATH="$installed" \
+            "$python" "$plugin_repo/tests/integration/review_regressions.py"
+
+          HERMES_HOME="$RUNNER_TEMP/sentinel-cleanup-fixture" PYTHONPATH="$installed" \
+            "$python" "$plugin_repo/tests/integration/replay_cleanup.py"
+
           behavior_home="$RUNNER_TEMP/sentinel-alternative-fixture"
           mkdir -p "$behavior_home/plugins"
           cp -R "$installed" "$behavior_home/plugins/sentinel-governance"

@@ -36,15 +36,17 @@ class FakeDB:
         self.path = path
         self.opened.append(path)
 
-    def list_sessions_rich(self, limit, order_by_last_active, include_archived):
+    def list_sessions_rich(self, limit, order_by_last_active, include_archived,
+                           include_children, include_hidden, include_subagents):
         assert order_by_last_active
-        assert include_archived
+        assert include_archived and include_children and include_hidden and include_subagents
         return self.sessions[:limit]
 
     def get_messages(self, session_id, latest, limit, offset, include_compacted):
         assert latest
         assert include_compacted
-        return list(reversed(list(reversed(self.messages))[offset:offset + limit]))
+        messages = self.messages[session_id] if isinstance(self.messages, dict) else self.messages
+        return list(reversed(list(reversed(messages))[offset:offset + limit]))
 
     def close(self):
         self.closed.append(self.path)
@@ -81,8 +83,8 @@ class ReplayTests(unittest.TestCase):
             {'timestamp': NOW + 1, 'tool_calls': [call('pytest')]},
         ]
         result = self.scan(messages)
-        self.assertEqual((result['pending'], result['blocked'], result['unclassified']), (1, 2, 1))
-        self.assertEqual(result['skipped'], 1)
+        self.assertEqual((result['pending'], result['blocked'], result['unclassified']), (1, 3, 2))
+        self.assertEqual(result['skipped'], 0)
         text = display_replay(result)
         for private in (CANARY, 'pytest', 'example.invalid', '.env', 'synthetic-session'):
             self.assertNotIn(private, text)
@@ -132,8 +134,35 @@ class ReplayTests(unittest.TestCase):
 
     def test_hard_deadline_stops_a_stalled_reader(self):
         start = time.monotonic()
-        with patch('sentinel.replay._worker', slow_worker):
-            result = summarize_replay([], self.policy, seconds=0.2, now=NOW)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'state.db'
+            path.touch()
+            with patch('sentinel.replay._worker', slow_worker):
+                result = summarize_replay([path], self.policy, seconds=0.2, now=NOW)
         self.assertLess(time.monotonic() - start, 1.5)
         self.assertEqual(result['limited'], 1)
         self.assertEqual(result['complete'], 0)
+
+    def test_exact_caps_are_complete_when_no_extra_item_exists(self):
+        message = {'timestamp': NOW, 'tool_calls': [call('pytest')] * 3}
+        result = self.scan([message], MAX_CALLS=3, MAX_MESSAGES=1, MAX_SESSIONS=1)
+        self.assertEqual(result['pending'], 3)
+        self.assertEqual(result['limited'], 0)
+
+    def test_outside_window_does_not_spend_call_budget(self):
+        result = self.scan([
+            {'timestamp': NOW, 'tool_calls': [call('pytest')]},
+            {'timestamp': NOW - 172800, 'tool_calls': [call('pytest')] * 100},
+        ], MAX_CALLS=1)
+        self.assertEqual(result['pending'], 1)
+        self.assertEqual(result['outside_window'], 100)
+        self.assertEqual(result['limited'], 0)
+
+    def test_sessions_get_a_turn_before_second_page_of_large_session(self):
+        FakeDB.sessions = [{'id': 'long'}, {'id': 'short'}]
+        result = self.scan({
+            'long': [{'timestamp': NOW, 'tool_calls': []}] * 100,
+            'short': [{'timestamp': NOW, 'tool_calls': [call('pytest')]}],
+        }, MAX_MESSAGES=33)
+        self.assertEqual(result['pending'], 1)
+        self.assertEqual(result['limited'], 1)

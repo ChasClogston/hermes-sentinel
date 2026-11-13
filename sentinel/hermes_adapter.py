@@ -22,6 +22,9 @@ _REFUSAL_GUIDANCE = (
     'Preserve the restriction expressed by this rule. '
     'Ask the user if completing the task requires an exception or additional authorization.'
 )
+_FAILURE_GUIDANCE = (
+    'Stop and tell the user that Sentinel Governance needs attention before tool execution can continue.'
+)
 _SHELL_META = re.compile(r'[;&|`<>\n\r$*?\[\]{}]')
 _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'id_rsa',
               'id_dsa', 'id_ecdsa', 'id_ed25519', 'credentials.json',
@@ -195,7 +198,7 @@ class SentinelHook:
             return {
                 'action': 'block',
                 'message': ('Sentinel Governance evaluation unavailable; tool call blocked. '
-                            + _REFUSAL_GUIDANCE)
+                            + _FAILURE_GUIDANCE)
             }
 
 
@@ -204,7 +207,7 @@ class BlockingHook:
     def __call__(self, tool_name: str, args: dict, **kwargs):
         return {'action': 'block',
                 'message': ('Sentinel Governance startup health check failed; execution blocked. '
-                            + _REFUSAL_GUIDANCE)}
+                            + _FAILURE_GUIDANCE)}
 
 
 class ObservingFailureHook:

@@ -3,7 +3,7 @@
 **Experimental, audit-first action governance for Nous Research Hermes Agent.**
 Targets **macOS and Linux**; requires Python 3.11+ and Hermes 0.23.0+ (uses Hermes bundled `hermes_yaml`; no external PyYAML dependency).
 
-Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code, ingest secret values, or require Secret Guard installed.
+Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code or require Secret Guard installed. Replay snapshots contain raw history, which may itself contain sensitive values; see the temporary-storage disclosure below.
 
 The plugin ID is `sentinel-governance`. Install it under that name and use `sentinel-governance report` for the audit summary. Existing installations can disable and remove the old plugin before installing this version. Both versions use the same profile-local audit journal. The legacy `sentinel` command and `HERMES_SENTINEL_MODE` setting remain available for existing scripts. If both mode settings are present, `SENTINEL_GOVERNANCE_MODE` takes precedence.
 
@@ -20,7 +20,7 @@ The plugin ID is `sentinel-governance`. Install it under that name and use `sent
 
 ## Demonstrated compatibility
 
-- On macOS, Hermes 0.23.0: 59 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
+- The v0.6.0 baseline had 59 automated tests plus catalog validation (15 checks) and plugin doctor (1 hook) on Hermes 0.23.0. The v0.6.1 candidate adds regressions: 92 unit tests and real pinned-Hermes history fixtures passed on MBP; CI separately verifies macOS and Linux lifecycle behavior.
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
@@ -75,7 +75,7 @@ The smoke test uses **synthetic proposed tool calls only**. It does not run `cur
 
 ## Audit schema
 
-An append-only-by-convention `sentinel/audit.jsonl` contains: event and action IDs, UTC timestamp, tool class, operation, HMAC-SHA256 target identifier, policy ID, verdict, and execution status. The audit key is locally generated and stored at `sentinel/audit.key`; files use mode `0600`. Raw destinations and commands are not persisted by Sentinel.
+An append-only-by-convention `sentinel/audit.jsonl` contains: event and action IDs, UTC timestamp, tool class, operation, HMAC-SHA256 target identifier, policy ID, verdict, and execution status. The audit key is locally generated and stored at `sentinel/audit.key`; files use mode `0600`. Raw destinations and commands are excluded from this audit journal; replay has a separate temporary-storage disclosure below.
 
 This journal is **not a complete execution log**. A verdict of `allowed` does not prove execution happened; `pending` does not prove the operator approved. Sentinel relies on Hermes-native approval prompts; it does not have a separate authorization database.
 
@@ -94,7 +94,7 @@ Independent repository and release cadence from Secret Guard. No vendored code o
 
 ## Required disclosures
 
-The runtime hook inspects proposed tool arguments in memory and reads its policy YAML and locally generated audit key. It writes a local HMAC key and sanitized JSONL journal under the active Hermes home. The hook initiates no network requests or subprocesses and reads no external credential stores. The user-invoked replay CLI reads stored tool arguments from selected Hermes history databases through the public read-only SessionDB interface. It uses a temporary worker process to enforce a two-second scan budget. Only aggregate integer counts return to the CLI. Worker diagnostics are suppressed, and replay writes no journal entries or history copies. Hermes and other tools have their own logging behavior.
+The runtime hook inspects proposed tool arguments in memory and reads its policy YAML and locally generated audit key. It writes a local HMAC key and sanitized JSONL journal under the active Hermes home. The hook initiates no network requests or subprocesses and reads no external credential stores. The user-invoked replay CLI makes a protected temporary raw copy of each selected history database and any WAL/rollback journal, then reads that copy through the public read-only SessionDB interface. The snapshot directory is owner-only (0700), files are 0600, and Hermes initialization uses an isolated home with the inherited environment cleared. Only aggregate integer counts return to the CLI; worker diagnostics are suppressed and replay adds no audit journal entries. The parent records Ctrl-C (SIGINT), termination (SIGTERM), or terminal/SSH closure (SIGHUP) as shutdown requests and exits with signal status after worker shutdown and snapshot cleanup. It polls for requests at short intervals. These signals cannot raise into parent cleanup. Critical deletion and worker shutdown also mask ordinary signals, restoring the prior mask afterward. The ownership marker is removed only after the contents, so a deletion error retains a marked recoverable directory. Normal completion and worker timeout use the same cleanup. If only the parent is killed with SIGKILL, the surviving worker checks its parent identity while copying/scanning, stops and removes its scratch directory. Killing both processes or power loss can still leave owner-only files. A later valid replay sweeps marked, owner-only, unleased directories older than 60 seconds; fresh, active, unmarked, unsafe or inaccessible directories are left alone. Cleanup is best effort under filesystem errors; deletion is not secure erasure. Snapshots use the user-owned private system temporary root on macOS when outside HOME and selected Hermes profiles, otherwise /tmp. Linux consistently uses /tmp. Both TMPDIR and XDG_RUNTIME_DIR are ignored for snapshot placement and startup sweeping. Leftovers in different roots used by older XDG-based builds are not discovered automatically. If no safe root is outside HOME and the selected profiles, replay is unavailable. Copying includes the complete database, so time and temporary disk usage grow with total history size, even for a short date window. The two-second worker budget includes copying and scanning; startup stale cleanup and the process-stop/cleanup interval add overhead. Replay must be invoked from the main thread so scoped signal handlers can be installed and restored. Hermes and other tools have their own logging behavior.
 
 ## v0.5 security review remediation
 
@@ -153,6 +153,26 @@ python -m sentinel.cli replay --days 14
 
 Replay estimates enforce-mode decisions using the current classifier and selected policy. It reads the current profile by default. The explicit `--all-profiles` flag also includes other profiles, which can contain other projects' history. The CLI outputs only counts by operation and verdict, including unclassified and skipped calls. It runs separately from live model sessions.
 
-A scan examines at most 2,000 stored calls, 2,000 messages, and 200 sessions, with a two-second worker deadline. It includes archived sessions and retained compacted messages through Hermes's public history API. Newest messages are considered first within each session. With multiple profiles, the current profile is visited first and the remaining selected profiles follow. Missing, unreadable, or symlinked database files are skipped. Malformed calls and messages outside the selected date window are counted separately. The output marks bounded or unreadable samples as incomplete.
+A scan classifies at most 2,000 in-window calls, scans at most 20,000 messages, and selects at most 200 sessions, with a two-second worker deadline. Out-of-window calls do not spend the call budget; plain messages still spend the message/time budgets. Sessions are selected with the current profile first, then the other selected profiles. Each database is copied, scanned and released before the next database, with current profile first. Within a database, pages are visited round-robin across selected sessions, newest first within each session. There is no round-robin fairness across profiles. Counts from earlier databases are emitted immediately and retained if a later copy times out. All profiles share the same call/message/session/time budgets. A cap marks the sample incomplete only when another item exists; timeouts and skipped databases also mark it incomplete.
 
-Historical source paths are evaluated against the current filesystem. Files that moved or disappeared can affect classification. These estimates describe proposed actions under today's policy and filesystem context. They do not establish historical execution or approval outcomes. Replay preserves the existing journal schema and runtime policy defaults.
+Hidden, child, subagent, archived, and rotated physical sessions are included once each. Each is read without ancestor expansion, avoiding duplicate rotation counts. Retained compaction history uses Hermes's display deduplication. Rewound rows (inactive and not compacted) are explicitly excluded, as is malformed data that Hermes's API discards before returning messages. Observable calls with a recognizable tool name and malformed/empty arguments are evaluated conservatively as unclassified, rather than silently omitted. Nested and flat function records, dictionary arguments, and large arguments are supported. Counts describe retained tool proposals, not unique executions across explicit conversation branches.
+
+Missing or symlinked database files are filtered before starting the reader; no original profile is created. Database and existing WAL/rollback-journal files are opened as regular files without following their final symlink. File identities, sizes and modification/change times are checked before and after copying all components; detected concurrent changes cause one retry in a fresh attempt directory if time remains, then that database is skipped if the source remains unstable. This is a best-effort stable capture, not a transactional backup of a continuously changing source. SQLite opens only the private copy, so any SQLite sidecar creation or Hermes profile scaffolding stays there.
+
+Historical source paths are evaluated against the current filesystem. Stored argument workdirs are honored; a missing workdir falls back to the replay invocation directory, not a reconstructed historical directory. Files that moved or disappeared can affect classification. These estimates describe proposed actions under today's policy and filesystem context. They do not establish historical execution or approval outcomes. Replay preserves the existing journal schema and runtime policy defaults.
+
+
+## v0.6.1 review fixes
+
+Equal-priority matching rules prefer `require_approval` over `allow`, independent of rule names. Hard denies continue to override all allows and approvals. Policies that allow the `unknown` operation are now rejected: the classifier groups arbitrary commands and other tools into that category, so it cannot safely represent a narrow tool exemption. Use recognized operations; a separate tool matcher is outside this patch.
+
+A genuine policy block retains permitted-alternative guidance. Evaluation failures and startup health-check failures instead say to stop and tell the user that Sentinel needs attention. They do not suggest alternatives while the failure blocks every tool. The replay `--days` argument accepts integers from 1 through 3650 and reports range errors directly.
+
+The cross-platform lifecycle jobs run synthetic fixtures against pinned Hermes, including rotation/children/hidden/subagents, compaction, named rewind exclusion, stored argument variants, window/message budgets, an open WAL source, unchanged original profile trees, and temporary-snapshot cleanup. No real history or credentials are used.
+
+
+### v0.6.1 re-review remediation
+
+Shutdown and orphan-worker cleanup, lease-protected stale cleanup, incremental copy/scan with partial-result retention, one bounded source-change retry, and distinct failed-database counting have regression coverage in both lifecycle jobs. Startup sweeping requires our versioned ownership marker, mode 0700 directory, mode 0600 single-link regular marker, matching user ownership, age over 60 seconds and an exclusive nonblocking lease. It never follows a marker/directory symlink or deletes an active leased replay. Older unmarked snapshots from pre-remediation builds are deliberately not swept automatically.
+
+See [release notes](docs/RELEASE_NOTES.md) for the incompatible unknown-allow policy behavior and remaining limitations. The snapshot design remains user-approved; no tool matcher or APFS-specific clone optimization is added in this patch.

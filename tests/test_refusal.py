@@ -16,10 +16,15 @@ class RefusalTests(unittest.TestCase):
             blocked = hook('terminal', {'command': 'echo PRIVATE_CANARY_487'})
             with patch('sentinel.hermes_adapter.load_policy', side_effect=ValueError('PRIVATE_CANARY_487')):
                 failed = hook('terminal', {'command': 'pytest'})
-            for result in (blocked, failed, BlockingHook()('terminal', {})):
+            for result in (blocked,):
                 self.assertEqual(result['action'], 'block')
                 self.assertIn('alternative that complies with the policy and existing authorization', result['message'])
                 self.assertIn('requires an exception or additional authorization', result['message'])
                 self.assertNotIn('PRIVATE_CANARY_487', result['message'])
                 self.assertNotIn('Do not reach the same result', result['message'])
+            for result in (failed, BlockingHook()('terminal', {})):
+                self.assertEqual(result['action'], 'block')
+                self.assertIn('Stop and tell the user', result['message'])
+                self.assertNotIn('alternative', result['message'])
+                self.assertNotIn('PRIVATE_CANARY_487', result['message'])
             self.assertNotIn('PRIVATE_CANARY_487', (Path(directory) / 'audit.jsonl').read_text())
