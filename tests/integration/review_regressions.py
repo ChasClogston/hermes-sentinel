@@ -137,8 +137,9 @@ def main():
     home, db = make('plain-messages')
     db.create_session('chat', 'cli')
     db.append_message('chat', 'assistant', timestamp=NOW, tool_calls=[tool(i) for i in range(50)])
-    for _ in range(2000):
-        db.append_message('chat', 'user', content='Synthetic plain text', timestamp=NOW)
+    for index in range(2000):
+        db.append_message('chat', 'user', content=f'Synthetic plain text {index}', timestamp=NOW)
+    assert len(db.get_messages('chat')) == 2001, 'Fixture messages must not be deduplicated'
     db.close()
     replay(home, 50)
 
