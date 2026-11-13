@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from hermes_state import SessionDB
+from sentinel.replay import _temp_root
 
 ROOT = Path(os.environ['HERMES_HOME'])
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -38,7 +39,8 @@ def fingerprint(home):
 
 def replay(home, pending, blocked=0, outside=0):
     before = fingerprint(home)
-    scratch = set(Path('/tmp').glob('sentinel-replay-*'))
+    temp = _temp_root([home / 'state.db'])
+    scratch = set(temp.glob('sentinel-replay-*'))
     env = dict(os.environ, HERMES_HOME=str(home), TMPDIR=str(home / 'must-not-create'))
     result = subprocess.run([sys.executable, '-m', 'sentinel.cli', 'replay'],
                             env=env, capture_output=True, text=True, timeout=10)
@@ -51,7 +53,7 @@ def replay(home, pending, blocked=0, outside=0):
     for private in (CANARY, str(home), 'pytest', 'example.invalid'):
         assert private not in result.stdout + result.stderr, result.stdout
     assert before == fingerprint(home), f'Original profile changed: {home.name}'
-    assert set(Path('/tmp').glob('sentinel-replay-*')) == scratch, 'Temporary snapshot residue'
+    assert set(temp.glob('sentinel-replay-*')) == scratch, 'Temporary snapshot residue'
 
 
 def make(name):

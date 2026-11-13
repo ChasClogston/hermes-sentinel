@@ -9,12 +9,14 @@ import math
 import multiprocessing
 import os
 import stat
-import tempfile
+import shutil
 import time
 from pathlib import Path
 
 from .engine import evaluate
 from .hermes_adapter import normalize
+from .replay_temp import (lease, remove_scratch, scratch_directory, sweep_stale,
+                          temp_root as _temp_root, termination_handlers)
 
 MAX_CALLS = 2_000
 MAX_MESSAGES = 20_000
@@ -71,16 +73,22 @@ def _parse_call(call) -> tuple[str, object] | None:
     return name, args
 
 
-def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
+def _scan(paths, policy, cutoff, now, emit, deadline, result=None, parent_pid=None) -> dict[str, int]:
     from hermes_state import SessionDB
 
-    result = _empty()
+    result = _empty() if result is None else result
+    failed = set()
+    keys = {}
+    def fail(key):
+        if key not in failed:
+            failed.add(key)
+            result['databases_skipped'] += 1
     key = os.urandom(32)
     databases = []
     queue = deque()
     try:
         for path in paths:
-            if time.monotonic() >= deadline:
+            if _expired(deadline, parent_pid):
                 result['limited'] = 1
                 break
             db = None
@@ -98,8 +106,9 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
                 result['sessions'] += len(selected)
                 queue.extend((db, session['id'], 0) for session in selected)
                 databases.append(db)
+                keys[id(db)] = str(path)
             except Exception:
-                result['databases_skipped'] += 1
+                fail(str(path))
                 if db is not None:
                     with contextlib.suppress(Exception):
                         db.close()
@@ -107,7 +116,7 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
         # all other selected sessions. Each physical session is read once;
         # ancestor expansion would count rotation parents multiple times.
         while queue:
-            if time.monotonic() >= deadline:
+            if _expired(deadline, parent_pid):
                 result['limited'] = 1
                 return result
             db, session_id, offset = queue.popleft()
@@ -115,7 +124,7 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
                 messages = db.get_messages(session_id, latest=True,
                     limit=_PAGE_SIZE, offset=offset, include_compacted=True)
             except Exception:
-                result['databases_skipped'] += 1
+                fail(keys[id(db)])
                 continue
             if not messages:
                 continue
@@ -133,7 +142,7 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
                     result['skipped'] += int(bool(calls))
                     calls = []
                 for call in reversed(calls):
-                    if time.monotonic() >= deadline:
+                    if _expired(deadline, parent_pid):
                         result['limited'] = 1
                         return result
                     if not valid_time:
@@ -165,6 +174,20 @@ def _scan(paths, policy, cutoff, now, emit, deadline) -> dict[str, int]:
     return result
 
 
+class SourceChanged(ValueError):
+    """The source changed during a best-effort snapshot; retry once if bounded."""
+
+
+class ParentGone(BaseException):
+    """Bypass broad database-error catches and stop all work immediately."""
+
+
+def _expired(deadline, parent_pid=None):
+    if parent_pid is not None and os.getppid() != parent_pid:
+        raise ParentGone
+    return time.monotonic() >= deadline
+
+
 def _identity(path):
     try:
         value = path.lstat()
@@ -175,7 +198,7 @@ def _identity(path):
     return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
 
-def _copy_database(source, directory, deadline):
+def _copy_database(source, directory, deadline, parent_pid=None):
     # Copy without opening SQLite on the source. WAL is needed for committed
     # uncheckpointed rows; SHM is rebuilt only in the private snapshot directory.
     components = [source, Path(str(source) + '-wal'), Path(str(source) + '-journal')]
@@ -187,64 +210,100 @@ def _copy_database(source, directory, deadline):
     for index, (path, expected) in enumerate(zip(components, before)):
         if expected is None:
             continue
-        if time.monotonic() >= deadline:
+        if _expired(deadline, parent_pid):
             raise TimeoutError
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            raise SourceChanged('database component disappeared') from None
         with os.fdopen(fd, 'rb') as original:
             value = os.fstat(original.fileno())
             observed = (value.st_dev, value.st_ino, value.st_size,
                         value.st_mtime_ns, value.st_ctime_ns)
             if not stat.S_ISREG(value.st_mode) or observed != expected:
-                raise ValueError('changed database component')
+                raise SourceChanged('changed database component')
             target = destination if index == 0 else Path(str(destination) + ('-wal' if index == 1 else '-journal'))
             with os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as copy:
                 while chunk := original.read(1024 * 1024):
-                    if time.monotonic() >= deadline:
+                    if _expired(deadline, parent_pid):
                         raise TimeoutError
                     copy.write(chunk)
     if before != [_identity(path) for path in components]:
-        raise ValueError('database changed during snapshot')
+        raise SourceChanged('database changed during snapshot')
     return destination
 
 
-def _worker(paths, policy, cutoff, now, connection, deadline, scratch, skipped):
-    # No provider/config initialization may discover the real home or credentials.
-    # This runs before importing Hermes's history API in the spawned process.
+def _worker(paths, policy, cutoff, now, connection, deadline, parent_pid, scratch, skipped):
+    # Import/config/provider discovery stays inside a private worker home.
     os.environ.clear()
     os.environ.update(HOME=str(scratch / 'home'), HERMES_HOME=str(scratch / 'hermes'),
                       TMPDIR=str(scratch), PATH='/usr/bin:/bin',
                       PYTHONDONTWRITEBYTECODE='1', HERMES_NO_AUTO_INSTALL='1')
     os.umask(0o077)
+    identity = None
     with open(os.devnull, 'w') as null:
         os.dup2(null.fileno(), 1)
         os.dup2(null.fileno(), 2)
         logging.disable(logging.CRITICAL)
         result = _empty()
-        snapshots = []
+        result['databases_skipped'] = skipped
+        def emit(value):
+            if os.getppid() != parent_pid:
+                raise ParentGone
+            connection.send(value)
         try:
-            for index, path in enumerate(paths):
-                try:
-                    snapshots.append(_copy_database(path, scratch / str(index), deadline))
-                except TimeoutError:
-                    result['limited'] = 1
-                    break
-                except Exception:
-                    skipped += 1
-            if not result['limited'] and snapshots:
-                def emit(value):
-                    counts = dict(zip(_FIELDS, value))
-                    counts['databases_skipped'] += skipped
-                    connection.send(_snapshot(counts))
-                result = _scan(snapshots, policy, cutoff, now, emit, deadline)
+            with lease(scratch) as (identity, _):
+                for index, path in enumerate(paths):
+                    if _expired(deadline, parent_pid):
+                        result['limited'] = 1
+                        break
+                    # Copy, scan and release each database in selection order.
+                    # Counts are emitted before a later database can time out.
+                    for attempt in range(2):
+                        directory = scratch / f'{index}-{attempt}'
+                        try:
+                            snapshot = _copy_database(path, directory, deadline, parent_pid)
+                            _scan([snapshot], policy, cutoff, now, emit, deadline,
+                                  result=result, parent_pid=parent_pid)
+                            break
+                        except SourceChanged:
+                            if attempt == 1 or _expired(deadline, parent_pid):
+                                result['databases_skipped'] += 1
+                                break
+                        except TimeoutError:
+                            result['limited'] = 1
+                            result['databases_skipped'] += 1
+                            break
+                        except Exception:
+                            result['databases_skipped'] += 1
+                            break
+                        finally:
+                            # Every attempt has a unique directory beneath the
+                            # leased scratch root, including incomplete copies.
+                            if directory.exists():
+                                shutil.rmtree(directory)
+                    emit(_snapshot(result))
+                    if result['limited']:
+                        break
+                result['complete'] = int(not result['limited'] and not result['databases_skipped'])
+                result['finished'] = 1
+                emit(_snapshot(result))
+        except ParentGone:
+            pass
+        except (BrokenPipeError, EOFError):
+            pass
         except Exception:
-            skipped += len(snapshots) or 1
-        result['databases_skipped'] += skipped
-        result['complete'] = int(not result['limited'] and not result['databases_skipped'])
-        result['finished'] = 1
-        try:
-            connection.send(_snapshot(result))
+            result['databases_skipped'] += 1
+            result['finished'] = 1
+            with contextlib.suppress(Exception, ParentGone):
+                emit(_snapshot(result))
         finally:
             connection.close()
+            # If the parent cannot run its finally (SIGKILL), the surviving
+            # worker owns removal. A later startup sweep handles both dying.
+            if identity is not None and os.getppid() != parent_pid:
+                with contextlib.suppress(OSError):
+                    remove_scratch(scratch, identity)
 
 
 def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS,
@@ -253,61 +312,63 @@ def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS
         raise ValueError('invalid replay window')
     if not 0 < seconds <= MAX_SECONDS:
         raise ValueError('invalid replay budget')
-    now = time.time() if now is None else now
-    result = _empty()
-    usable = []
-    for path in dict.fromkeys(map(Path, paths)):
-        try:
-            if _identity(path) is not None:
-                usable.append(path)
-            else:
+    with termination_handlers():
+        now = time.time() if now is None else now
+        result = _empty()
+        paths = list(dict.fromkeys(map(Path, paths)))
+        root = _temp_root(paths)
+        sweep_stale(root)
+        usable = []
+        for path in dict.fromkeys(map(Path, paths)):
+            try:
+                if _identity(path) is not None:
+                    usable.append(path)
+                else:
+                    result['databases_skipped'] += 1
+            except OSError:
                 result['databases_skipped'] += 1
-        except OSError:
-            result['databases_skipped'] += 1
-        except ValueError:
-            result['databases_skipped'] += 1
-    if not usable:
-        result['finished'] = 1
-        return result
-    deadline = time.monotonic() + seconds
-    context = multiprocessing.get_context('spawn')
-    # Explicit /tmp avoids a caller's TMPDIR placing the copy inside a profile.
-    # The parent owns cleanup so it also runs after a killed/timed-out worker.
-    with tempfile.TemporaryDirectory(prefix='sentinel-replay-', dir='/tmp') as directory:
-        scratch = Path(directory)
-        reader, writer = context.Pipe(duplex=False)
-        process = context.Process(target=_worker, args=(usable, policy,
-            now - days * 86400, now, writer, deadline, scratch, result['databases_skipped']))
-        try:
-            process.start()
-            writer.close()
-            while time.monotonic() < deadline:
-                if not reader.poll(max(0, deadline - time.monotonic())):
-                    break
-                try:
-                    snapshot = reader.recv()
-                except EOFError:
-                    break
-                if (not isinstance(snapshot, tuple) or len(snapshot) != len(_FIELDS)
-                        or any(type(value) is not int or value < 0 for value in snapshot)):
-                    raise ValueError('invalid replay result')
-                result = dict(zip(_FIELDS, snapshot))
-                if result['finished']:
-                    break
-            if not result['finished']:
-                result['limited'] = 1
-        finally:
-            writer.close()
-            reader.close()
-            if process.pid is not None:
-                if process.is_alive():
-                    process.terminate()
-                process.join(timeout=0.1)
-                if process.is_alive():
-                    process.kill()
+            except ValueError:
+                result['databases_skipped'] += 1
+        if not usable:
+            result['finished'] = 1
+            return result
+        deadline = time.monotonic() + seconds
+        context = multiprocessing.get_context('spawn')
+        with scratch_directory(root) as scratch:
+            reader, writer = context.Pipe(duplex=False)
+            process = context.Process(target=_worker, args=(usable, policy,
+                now - days * 86400, now, writer, deadline, os.getpid(), scratch, result['databases_skipped']))
+            try:
+                process.start()
+                writer.close()
+                while time.monotonic() < deadline:
+                    if not reader.poll(max(0, deadline - time.monotonic())):
+                        break
+                    try:
+                        snapshot = reader.recv()
+                    except EOFError:
+                        break
+                    if (not isinstance(snapshot, tuple) or len(snapshot) != len(_FIELDS)
+                            or any(type(value) is not int or value < 0 for value in snapshot)):
+                        raise ValueError('invalid replay result')
+                    result = dict(zip(_FIELDS, snapshot))
+                    if result['finished']:
+                        break
+                if not result['finished']:
+                    result['limited'] = 1
+            finally:
+                writer.close()
+                reader.close()
+                if process.pid is not None:
+                    if process.is_alive():
+                        process.terminate()
                     process.join(timeout=0.1)
-                process.close()
-    return result
+                    if process.is_alive():
+                        process.kill()
+                        process.join(timeout=0.1)
+                    if not process.is_alive():
+                        process.close()
+        return result
 
 
 def display_replay(result: dict[str, int], days: int = 14) -> str:

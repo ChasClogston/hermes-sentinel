@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from sentinel.replay import _copy_database, _identity, summarize_replay
+from sentinel.replay import _copy_database, _identity, _temp_root, summarize_replay
 
 
 def writing_worker(*args):
@@ -56,12 +56,13 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(result['complete'], 0)
 
     def test_timeout_cleans_raw_snapshot_owned_by_parent(self):
-        before = set(Path('/tmp').glob('sentinel-replay-*'))
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / 'state.db'
             source.touch()
+            temp = _temp_root([source])
+            before = set(temp.glob('sentinel-replay-*'))
             with patch('sentinel.replay._worker', writing_worker):
                 result = summarize_replay([source], {'rules': []}, seconds=0.4)
             self.assertEqual(result['limited'], 1)
             self.assertEqual(list(Path(root).iterdir()), [source])
-        self.assertEqual(set(Path('/tmp').glob('sentinel-replay-*')), before)
+        self.assertEqual(set(temp.glob('sentinel-replay-*')), before)
