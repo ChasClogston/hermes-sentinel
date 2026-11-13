@@ -31,7 +31,7 @@ class CleanupBoundaryTests(unittest.TestCase):
             package = str(Path(replay.__file__).resolve().parents[1])
             env['PYTHONPATH'] = package + os.pathsep + env.get('PYTHONPATH', '')
             run = subprocess.run([sys.executable, str(Path(__file__).with_name('cleanup_boundary_probe.py')),
-                                  mode, directory, str(sig)], env=env, capture_output=True, timeout=6)
+                                  mode, directory, str(sig)], env=env, capture_output=True, timeout=10)
             ready = control / 'ready.json'
             scratch, worker = None, None
             if ready.exists():
@@ -40,7 +40,7 @@ class CleanupBoundaryTests(unittest.TestCase):
                 worker = data.get('worker')
             try:
                 self.assertEqual(run.returncode, 128 + sig, run.stderr.decode())
-                if mode == 'worker-stop':
+                if mode.startswith('worker-stop'):
                     self.assertTrue((control/'terminated').exists(), 'Signal interrupted worker termination')
                     self.assertTrue((control/'closed').exists(), 'Worker was not joined/closed')
                 self.assertIsNotNone(scratch, run.stderr.decode())
@@ -64,6 +64,9 @@ class CleanupBoundaryTests(unittest.TestCase):
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             with self.subTest(signal=sig):
                 self.boundary('worker-stop', sig)
+
+    def test_worker_shutdown_probe_waits_for_slow_startup(self):
+        self.boundary('worker-stop-slow-start', signal.SIGTERM)
 
     def test_marker_is_removed_only_after_all_history(self):
         with tempfile.TemporaryDirectory() as directory:
