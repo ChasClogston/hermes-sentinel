@@ -146,10 +146,17 @@ def main():
     home, db = make('open-wal')
     db.create_session('wal', 'cli')
     add(db, 'wal', 2)
-    db.flush_for_read()
-    assert Path(str(home / 'state.db') + '-wal').exists()
-    replay(home, 2)
     db.close()
+    # Some Hermes runtimes intentionally choose DELETE for their bundled SQLite.
+    # Force WAL only on this synthetic fixture using one quiescent writer, so
+    # source snapshot coverage does not depend on Hermes's platform preference.
+    with sqlite3.connect(home / 'state.db') as writer:
+        assert writer.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+        writer.execute('UPDATE messages SET content=?', (CANARY,))
+        writer.commit()
+        assert Path(str(home / 'state.db') + '-wal').exists()
+        replay(home, 2)
+    writer.close()
 
     env = dict(os.environ, HERMES_HOME=str(ROOT / 'invalid-days'))
     result = subprocess.run([sys.executable, '-m', 'sentinel.cli', 'replay', '--days', '0'],
