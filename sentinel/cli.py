@@ -29,16 +29,19 @@ def main(argv=None) -> int:
         parser = argparse.ArgumentParser(prog='sentinel-governance replay',
                                          description='Counts-only estimates from read-only Hermes history')
         parser.add_argument('--policy', type=Path,
-                            default=Path(__file__).parent.parent / 'policies' / 'default.yaml')
+                            default=None, help='Explicit analysis policy; default is the active profile policy')
         parser.add_argument('--days', type=_replay_days, default=14)
         parser.add_argument('--all-profiles', action='store_true',
                             help='Include other profiles, which may contain other projects\' history')
         args = parser.parse_args(argv[1:])
         from .config import load_policy
         from .replay import discover_databases, display_replay, summarize_replay
+        from .settings import current_home, resolve_settings
         try:
+            policy = (load_policy(str(args.policy)) if args.policy is not None else
+                      resolve_settings(current_home()).load_policy())
             result = summarize_replay(discover_databases(args.all_profiles),
-                                      load_policy(str(args.policy)), days=args.days)
+                                      policy, days=args.days)
             print(display_replay(result, days=args.days))
             return 0
         except Exception:
@@ -54,6 +57,12 @@ def main(argv=None) -> int:
         from .report import summarize,display_report
         try:
             summary=summarize(args.journal or _journal_default(),args.days)
+            from .settings import current_home, resolve_settings
+            try:
+                binding = resolve_settings(current_home())
+                print(f'Effective mode: {binding.mode}\nMode source: {binding.mode_source}\nPolicy source: {binding.policy_source}')
+            except Exception:
+                print('Effective mode: invalid (fail closed)\nMode source: invalid\nPolicy source: unavailable')
             print(display_report(summary,use_color=sys.stdout.isatty() and 'NO_COLOR' not in os.environ))
             return 0
         except (ValueError,OSError) as e:

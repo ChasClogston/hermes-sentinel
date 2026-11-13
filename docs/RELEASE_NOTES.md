@@ -1,6 +1,21 @@
-# v0.6.1 candidate
+# v0.7.0 candidate
 
-This candidate remains subject to independent review before merge or catalog repinning.
+Separate follow-up to merged v0.6.1 / PR #7. Not production-enabled and not catalog-repinned.
+
+- Read `mode` and `policy_path` from public Hermes plugin settings on each active-profile call. Environment may tighten audit to enforce but cannot loosen settings enforce; invalid selected mode values fail closed. Startup logs and the read-only report show mode and source without private paths.
+- Honor a profile-local custom policy without editing the installed plugin. Refuse symlinks, escaping/traversing paths, special or multiply-linked files, unsafe ownership and group/other-writable files/directories. Opened descriptors bind validation to reads. Invalid policy observes in audit and blocks in enforce; never silently use bundled rules instead.
+- Add optional exact `tools` matching. Unknown allow now requires a nonempty named-tool list excluding terminal/execute_code. Hard-deny and approval priority and invalid-destination protection remain. Journal tool classes stay unchanged.
+- A named allow grants the whole tool; arguments and server capabilities are not inspected. A tool may write anywhere the host permits or perform any operation its implementation supports. This is operator trust, not capability isolation. Other host/plugin gates remain.
+- Replay defaults to the selected profile policy and uses the same tool matcher as live calls. An explicit `--policy` selects the analysis policy; all-profile replay uses one selected policy for all histories.
+- Add settings-only real-Hermes enforcement, named-tool and real history parity fixtures, plus mode/unsafe-file/concurrent-profile regressions. The fixture replaces a disposable plugin directory and verifies the external profile policy survives. Existing replay snapshot protections and accepted limitations are unchanged.
+
+See the README for configuration and trust disclosures. The `hermes_yaml` catalog warning remains unresolved pending maintainer guidance. Catalog PR #155058 remains draft and its pin stays on v0.6.0; no re-pin is part of this change. Optional self-test CLI/proving-ground contract and broader classifier backlog are deferred.
+
+---
+
+# v0.6.1 (merged PR #7)
+
+Merged after Claude cleared exact head defc0d0. Catalog repinning remains on hold.
 
 ## Policy compatibility
 

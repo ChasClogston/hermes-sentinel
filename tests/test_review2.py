@@ -76,11 +76,11 @@ class Review2Tests(unittest.TestCase):
                         'HERMES_HOME': d,
                     }):
                         plugin.register(ctx)
-                    self.assertIsNone(ctx.handler('read_file',{'path':'test'}))
+                        self.assertIsNone(ctx.handler('read_file',{'path':'test'}))
                     ctx2=Ctx()
                     with patch.dict(os.environ,{'HERMES_SENTINEL_MODE':'enforce','HERMES_HOME':d}):
                         plugin.register(ctx2)
-                    self.assertEqual(ctx2.handler('read_file',{'path':'test'})['action'],'block')
+                        self.assertEqual(ctx2.handler('read_file',{'path':'test'})['action'],'block')
         finally:
             sys.modules.pop('test_plugin_r2',None)
 

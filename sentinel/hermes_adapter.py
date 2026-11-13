@@ -9,6 +9,7 @@ import logging
 import re
 import secrets
 import shlex
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit
 from .audit import append_event
@@ -52,6 +53,10 @@ def _sensitive_path(raw: str) -> bool:
 
 
 def normalize(tool_name: str, args: dict) -> Action:
+    return replace(_normalize(tool_name, args), tool_name=tool_name)
+
+
+def _normalize(tool_name: str, args: dict) -> Action:
     """Recognize only single-destination, option-restricted curl proposals.
 
     Other network clients and arbitrary commands cannot safely be classified.
@@ -111,7 +116,7 @@ def normalize(tool_name: str, args: dict) -> Action:
 
 class SentinelHook:
     def __init__(self, policy_path: str, audit_path: str, audit_key: bytes,
-                 mode: str = 'audit', state_resolver=None):
+                 mode: str = 'audit', state_resolver=None, binding_resolver=None):
         if mode not in {'audit', 'enforce'}:
             raise ValueError('invalid Sentinel mode')
         self.policy_path = policy_path
@@ -119,14 +124,20 @@ class SentinelHook:
         self.audit_key = audit_key
         self.mode = mode
         self.state_resolver = state_resolver
+        self.binding_resolver = binding_resolver
 
     def __call__(self, tool_name: str, args: dict, task_id: str = '',
                  session_id: str = '', tool_call_id: str = '', **kwargs):
+        mode = 'invalid' if self.binding_resolver is not None else self.mode
         try:
+            binding = self.binding_resolver() if self.binding_resolver is not None else None
+            if binding is not None:
+                mode = binding.mode
+            policy = binding.load_policy() if binding is not None else load_policy(self.policy_path)
             action = normalize(tool_name, args)
             audit_path, audit_key = (self.state_resolver() if self.state_resolver is not None
                                      else (self.audit_path, self.audit_key))
-            decision = evaluate(action, load_policy(self.policy_path), audit_key)
+            decision = evaluate(action, policy, audit_key)
             event_id = secrets.token_hex(12)
             entry = {
                 'event_id': event_id,
@@ -134,15 +145,15 @@ class SentinelHook:
                 'tool_name': 'terminal' if tool_name == 'terminal' else 'other',
                 'operation': decision.operation,
                 'target_hmac_sha256': decision.target_digest,
-                'verdict': ('unclassified' if self.mode == 'audit'
+                'verdict': ('unclassified' if mode == 'audit'
                             and decision.rule_id == 'default-deny' else decision.verdict),
                 'policy_verdict': decision.verdict,
                 'classification': ('unclassified' if decision.rule_id == 'default-deny'
                                    else 'matched'),
-                'enforcement_mode': self.mode,
+                'enforcement_mode': mode,
                 'policy_id': decision.rule_id,
                 'reason_code': 'policy_decision',
-                'execution_status': ('not_enforced' if self.mode == 'audit'
+                'execution_status': ('not_enforced' if mode == 'audit'
                                      else 'blocked_by_sentinel' if decision.verdict == 'blocked'
                                      else 'approval_requested' if decision.verdict == 'pending'
                                      else 'not_observed'),
@@ -152,7 +163,7 @@ class SentinelHook:
                 if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,96}', value):
                     entry[k] = value
             append_event(audit_path, entry)
-            if self.mode == 'audit':
+            if mode == 'audit':
                 return None
             if decision.verdict == 'allowed':
                 return None
@@ -166,6 +177,10 @@ class SentinelHook:
                 if action.operation == 'test_execution':
                     label = _TEST_COMMANDS[tuple(shlex.split(args['command']))]
                     context = f'command={label}, workspace={workspace}'
+                elif action.operation == 'unknown':
+                    name = action.tool_name
+                    label = name if isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', name) else '[redacted]'
+                    context = f'tool={label}, scope=whole tool; arguments are not inspected'
                 else:
                     host = urlsplit(action.destination).hostname or 'unknown'
                     _, ui_path = safe_url_path(action.destination) if action.destination else (True, '[none]')
@@ -193,7 +208,7 @@ class SentinelHook:
         except Exception as exc:
             # Never include exception text, which may embed raw arguments.
             _LOG.warning('Sentinel Governance hook failure: %s', type(exc).__name__)
-            if self.mode == 'audit':
+            if mode == 'audit':
                 return None
             return {
                 'action': 'block',

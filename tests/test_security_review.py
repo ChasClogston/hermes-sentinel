@@ -131,7 +131,7 @@ class AdversarialTests(unittest.TestCase):
                 ctx=Ctx()
                 with patch.dict(os.environ,{"HERMES_SENTINEL_MODE":"enforcing"}):
                     module.register(ctx)
-                self.assertEqual(ctx.handler("terminal",{"command":"pytest"})["action"],"block")
+                    self.assertEqual(ctx.handler("terminal",{"command":"pytest"})["action"],"block")
         finally:
             sys.modules.pop(package_name,None)
 

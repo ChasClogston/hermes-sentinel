@@ -14,6 +14,7 @@ class Action:
     operation: str
     destination: str | None = None
     source_class: str = "unknown"
+    tool_name: str | None = None
 
 @dataclass(frozen=True)
 class Decision:
@@ -61,6 +62,8 @@ def evaluate(action: Action, policy: dict, audit_key: bytes) -> Decision:
     rules = policy.get("rules", [])
     matches = []
     for rule in rules:
+        if 'tools' in rule and (action.tool_name or action.tool) not in rule['tools']:
+            continue
         if action.operation not in rule.get("operations", []):
             continue
         if "destination_classes" in rule and category not in rule["destination_classes"]:

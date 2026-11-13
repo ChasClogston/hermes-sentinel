@@ -108,6 +108,12 @@ jobs:
           HERMES_HOME="$behavior_home" PYTHONPATH="$behavior_home/plugins/sentinel-governance" \
             "$python" "$plugin_repo/tests/integration/permitted_alternative.py"
 
+          settings_home="$RUNNER_TEMP/sentinel-settings-fixture"
+          mkdir -p "$settings_home/plugins"
+          cp -R "$installed" "$settings_home/plugins/sentinel-governance"
+          HERMES_HOME="$settings_home" PYTHONPATH="$settings_home/plugins/sentinel-governance" \
+            "$python" "$plugin_repo/tests/integration/profile_settings.py"
+
           "$hermes" plugins disable sentinel-governance
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" disabled
           "$hermes" plugins remove sentinel-governance

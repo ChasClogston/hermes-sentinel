@@ -5,7 +5,7 @@ Targets **macOS and Linux**; requires Python 3.11+ and Hermes 0.23.0+ (uses Herm
 
 Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code or require Secret Guard installed. Replay snapshots contain raw history, which may itself contain sensitive values; see the temporary-storage disclosure below.
 
-The plugin ID is `sentinel-governance`. Install it under that name and use `sentinel-governance report` for the audit summary. Existing installations can disable and remove the old plugin before installing this version. Both versions use the same profile-local audit journal. The legacy `sentinel` command and `HERMES_SENTINEL_MODE` setting remain available for existing scripts. If both mode settings are present, `SENTINEL_GOVERNANCE_MODE` takes precedence.
+The plugin ID is `sentinel-governance`. Install it under that name and use `sentinel-governance report` for the audit summary. Existing installations can disable and remove the old plugin before installing this version. Both versions use the same profile-local audit journal. The legacy `sentinel` command and `HERMES_SENTINEL_MODE` setting remain available for existing scripts. If both environment variables are present, `SENTINEL_GOVERNANCE_MODE` takes precedence over the legacy variable. Profile settings are authoritative; the selected environment value can only tighten them, as described below.
 
 ## What it actually does
 
@@ -20,7 +20,7 @@ The plugin ID is `sentinel-governance`. Install it under that name and use `sent
 
 ## Demonstrated compatibility
 
-- The v0.6.0 baseline had 59 automated tests plus catalog validation (15 checks) and plugin doctor (1 hook) on Hermes 0.23.0. The v0.6.1 candidate adds regressions: 92 unit tests and real pinned-Hermes history fixtures passed on MBP; CI separately verifies macOS and Linux lifecycle behavior.
+- The v0.6.0 baseline had 59 automated tests plus catalog validation (15 checks) and plugin doctor (1 hook) on Hermes 0.23.0. The merged v0.6.1 release adds regressions: 92 unit tests and real pinned-Hermes history fixtures passed on MBP; CI separately verifies macOS and Linux lifecycle behavior.
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
@@ -54,6 +54,49 @@ export SENTINEL_GOVERNANCE_MODE=enforce
 ```
 
 **Enforcement is deliberately restrictive:** recognized test commands require Hermes approval and the prompt displays their allowlisted command label, obvious credential file transfers are blocked, a recognized external transfer requests Hermes native approval, and all other unrecognized operations are blocked. This default policy is unsuitable for ordinary daily use.
+
+## Profile settings (v0.7.0)
+
+In the selected Hermes profile's `config.yaml`, configure the plugin without relying on a shell environment:
+
+```yaml
+plugins:
+  enabled: [sentinel-governance]
+  entries:
+    sentinel-governance:
+      settings:
+        mode: audit
+        policy_path: sentinel/policy.yaml
+```
+
+Omit `policy_path` to use the bundled default. Omit `mode` for audit. The public Hermes `ctx.get_config` API also supports its legacy `config` subtree fallback. Sentinel reads mode and policy **per active profile, on each hook call**, with no shared mutable mode. A multiplexed profile switch therefore changes settings, policy, journal and audit key together. A malformed mode fails closed. A refused/unparsable policy or journal failure observes only in audit and blocks in enforce.
+
+Mode is `enforce` if either the setting or selected environment value is enforce. Otherwise it is audit. Settings enforce plus environment audit remains enforce. An invalid value in either selected source blocks; case and surrounding whitespace are normalized. `SENTINEL_GOVERNANCE_MODE` takes precedence over the legacy `HERMES_SENTINEL_MODE` environment variable, whose value is then ignored. Registration logs the effective mode, mode source (`default`, `settings`, `environment`, or `settings+environment`) and policy source (`bundled` or `profile`). `sentinel-governance report` prints those same sources without policy contents or private paths. These are current configuration values, not a claim that an already-running process was restarted or that past events used those settings.
+
+A custom policy must be inside the active Hermes home. Relative paths are rooted there; an absolute path inside that home is also accepted. Sentinel rejects traversal, symlinks (including intermediate directories), non-regular files, multiply-linked files, files not owned by the current user or root, and files writable by group or others. The home and intermediate policy directories must not be group/other writable either. Verification and reading use the same opened file descriptor. Use an owner-controlled file, for example mode 0600. Keep it under the profile, outside the installed plugin: an update replaces the plugin without overwriting the policy. No fallback to bundled rules occurs when a configured policy is invalid.
+
+### Exact tool rules and whole-tool trust
+
+```yaml
+version: 1
+rules:
+  - id: allow-read-tools
+    effect: allow
+    operations: [unknown]
+    tools: [read_file, search_files, secret_request]
+  - id: approve-writes
+    effect: require_approval
+    operations: [unknown]
+    tools: [write_file, patch]
+```
+
+`tools` is an optional, nonempty list of exact, case-sensitive names (letters, digits, `_ . : -`, at most 160 characters). It narrows every rule to those tools; it has no wildcard or basename matching. An absent matcher retains prior matching behavior. Hard denies override all other rules; equal-priority approval beats allow. Invalid destinations remain blocked.
+
+An `allow` for `unknown` requires a `tools` list and refuses `terminal` or `execute_code` (including case variants). Other named tools are an explicit operator trust decision: **the whole tool is allowed, and Sentinel does not inspect its arguments**. Allowing `write_file` permits writes to any path Hermes permits. A named MCP/plugin tool can do anything its server or implementation permits, including executing code under a different name. Sentinel's matcher does not attest to a tool's implementation or capabilities. Other Hermes and plugin checks still apply. Journal names remain the private `terminal`/`other` classes; raw names and arguments are not added.
+
+Replay uses this exact matcher. Without `--policy`, it loads the selected profile's configured policy; `--policy P` deliberately selects a separate analysis policy. With `--all-profiles`, all histories are estimated against that one selected policy, not each historical profile's policy. Counts are estimates, not execution or approval evidence.
+
+The v0.7.0 test fixture uses cleared mode environment variables and real Hermes dispatch with synthetic final effects. It checks settings-only enforce, named tools without approvals, unknown-tool denial, approval-required writes, policy survival across plugin-directory replacement, and real SessionDB replay parity. No live credential store is touched. Optional policy self-test CLI and proving-ground contracts are deferred.
 
 ### Remove
 
@@ -98,7 +141,7 @@ The runtime hook inspects proposed tool arguments in memory and reads its policy
 
 ## v0.5 security review remediation
 
-An independent adversarial review identified weaknesses in v0.4.0. Version 0.5 narrows command recognition to a restricted, exact curl grammar, uses a fresh `rule_key` per approval request to prevent session/always grants carrying over, and displays only an operation, hostname and source classification in approval messages. All unknown tools and shell expressions are denied in enforce mode. This is a conservative prototype, **not general shell-policy enforcement**.
+An independent adversarial review identified weaknesses in v0.4.0. Version 0.5 narrows command recognition to a restricted, exact curl grammar, uses a fresh `rule_key` per approval request to prevent session/always grants carrying over, and displays only an operation, hostname and source classification in approval messages. With the bundled default policy, all unknown tools and shell expressions are denied in enforce mode. This is a conservative prototype, **not general shell-policy enforcement**.
 
 Audit-only records now say `execution_status: not_enforced`, not `not_executed`: they represent a *would-be* policy verdict, not the actual execution outcome. Enforcement records mean `approval_requested` or `not_observed`, not a claim that a human approved or that the tool executed. Hermes post-execution correlation is still future work.
 
@@ -162,7 +205,7 @@ Missing or symlinked database files are filtered before starting the reader; no 
 Historical source paths are evaluated against the current filesystem. Stored argument workdirs are honored; a missing workdir falls back to the replay invocation directory, not a reconstructed historical directory. Files that moved or disappeared can affect classification. These estimates describe proposed actions under today's policy and filesystem context. They do not establish historical execution or approval outcomes. Replay preserves the existing journal schema and runtime policy defaults.
 
 
-## v0.6.1 review fixes
+## Historical v0.6.1 review fixes
 
 Equal-priority matching rules prefer `require_approval` over `allow`, independent of rule names. Hard denies continue to override all allows and approvals. Policies that allow the `unknown` operation are now rejected: the classifier groups arbitrary commands and other tools into that category, so it cannot safely represent a narrow tool exemption. Use recognized operations; a separate tool matcher is outside this patch.
 

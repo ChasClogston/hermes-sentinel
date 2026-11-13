@@ -64,30 +64,26 @@ def _audit_key(state: Path) -> bytes:
 
 
 def register(ctx):
-    """Audit startup failures observe only; enforce failures register a veto."""
-    mode = os.environ.get('SENTINEL_GOVERNANCE_MODE',
-                          os.environ.get('HERMES_SENTINEL_MODE', 'audit')).strip().lower()
+    """Resolve the active profile on each call, including after startup failure."""
+    from .sentinel.settings import current_home, resolve_settings
+    getter = getattr(ctx, 'get_config', lambda key, default=None: default)
+    def resolve_binding():
+        return resolve_settings(current_home(), getter)
+    def resolve_current_profile():
+        state = current_home() / 'sentinel'
+        return str(state / 'audit.jsonl'), _audit_key(state)
+    handler = SentinelHook('', '', b'', binding_resolver=resolve_binding,
+                           state_resolver=resolve_current_profile)
+    # Preflight is diagnostic only. The dynamic hook retries for the next call's
+    # profile; an audit startup failure must never freeze an audit fallback.
     try:
-        if mode not in {'audit', 'enforce'}:
-            raise ValueError('invalid Sentinel mode')
-        # Hermes constants honor multiplex context-local profile overrides.
-        from hermes_constants import get_hermes_home
-        state = get_hermes_home() / 'sentinel'
-        key = _audit_key(state)
-        policy_path = str(Path(__file__).parent / 'policies' / 'default.yaml')
-        def resolve_current_profile():
-            current = get_hermes_home() / 'sentinel'
-            return str(current / 'audit.jsonl'), _audit_key(current)
-        handler = SentinelHook(policy_path, str(state / 'audit.jsonl'), key,
-                               mode=mode, state_resolver=resolve_current_profile)
+        binding = resolve_binding()
+        logging.getLogger(__name__).info(
+            'Sentinel Governance effective mode=%s mode_source=%s policy_source=%s; settings resolved per call',
+            binding.mode, binding.mode_source, binding.policy_source)
+        binding.load_policy()
+        resolve_current_profile()
     except Exception as exc:
         logging.getLogger(__name__).warning(
             'Sentinel Governance initialization failure: %s', type(exc).__name__)
-        # Audit must not turn a damaged journal into an agent-wide denial.
-        # Invalid mode cannot be trusted as audit and remains fail-closed.
-        if mode == 'audit':
-            from .sentinel.hermes_adapter import ObservingFailureHook
-            handler = ObservingFailureHook()
-        else:
-            handler = BlockingHook()
     ctx.register_hook('pre_tool_call', handler)
