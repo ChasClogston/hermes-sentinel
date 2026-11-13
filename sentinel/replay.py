@@ -272,7 +272,6 @@ def _worker(paths, policy, cutoff, now, connection, deadline, parent_pid, scratc
                                 break
                         except TimeoutError:
                             result['limited'] = 1
-                            result['databases_skipped'] += 1
                             break
                         except Exception:
                             result['databases_skipped'] += 1

@@ -53,6 +53,7 @@ class ReplayCleanupTests(unittest.TestCase):
         result, _ = self.scenario('second-timeout', 2)
         self.assertEqual(result['pending'], 1)
         self.assertEqual(result['limited'], 1)
+        self.assertEqual(result['databases_skipped'], 0)
         self.assertEqual(result['complete'], 0)
 
     def test_source_changed_once_retries_and_counts(self):
