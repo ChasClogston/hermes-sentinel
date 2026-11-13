@@ -3,7 +3,7 @@
 **Experimental, audit-first action governance for Nous Research Hermes Agent.**
 Targets **macOS and Linux**; requires Python 3.11+ and Hermes 0.23.0+ (uses Hermes bundled `hermes_yaml`; no external PyYAML dependency).
 
-Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code, ingest secret values, or require Secret Guard installed.
+Sentinel is an independent companion to Secret Guard. It does **not** copy Secret Guard code or require Secret Guard installed. Replay snapshots contain raw history, which may itself contain sensitive values; see the temporary-storage disclosure below.
 
 The plugin ID is `sentinel-governance`. Install it under that name and use `sentinel-governance report` for the audit summary. Existing installations can disable and remove the old plugin before installing this version. Both versions use the same profile-local audit journal. The legacy `sentinel` command and `HERMES_SENTINEL_MODE` setting remain available for existing scripts. If both mode settings are present, `SENTINEL_GOVERNANCE_MODE` takes precedence.
 
@@ -20,7 +20,7 @@ The plugin ID is `sentinel-governance`. Install it under that name and use `sent
 
 ## Demonstrated compatibility
 
-- On macOS, Hermes 0.23.0: 59 automated tests passed (macOS development), plugin catalog validation passed (15 checks), plugin doctor passed (1 registered hook).
+- The v0.6.0 baseline had 59 automated tests plus catalog validation (15 checks) and plugin doctor (1 hook) on Hermes 0.23.0. The v0.6.1 candidate adds regressions: 70 unit tests and real pinned-Hermes history fixtures passed on MBP; CI separately verifies macOS and Linux lifecycle behavior.
 - Tested real Hermes pre-tool hook dispatch in isolated audit and enforcement profiles using synthetic proposals, **without executing network commands**.
 - Audited proposals produced expected `allowed`, `pending`, and `blocked` journal records.
 - Verified disabling/removing the plugin leaves zero active Sentinel hooks in a new process.
@@ -75,7 +75,7 @@ The smoke test uses **synthetic proposed tool calls only**. It does not run `cur
 
 ## Audit schema
 
-An append-only-by-convention `sentinel/audit.jsonl` contains: event and action IDs, UTC timestamp, tool class, operation, HMAC-SHA256 target identifier, policy ID, verdict, and execution status. The audit key is locally generated and stored at `sentinel/audit.key`; files use mode `0600`. Raw destinations and commands are not persisted by Sentinel.
+An append-only-by-convention `sentinel/audit.jsonl` contains: event and action IDs, UTC timestamp, tool class, operation, HMAC-SHA256 target identifier, policy ID, verdict, and execution status. The audit key is locally generated and stored at `sentinel/audit.key`; files use mode `0600`. Raw destinations and commands are excluded from this audit journal; replay has a separate temporary-storage disclosure below.
 
 This journal is **not a complete execution log**. A verdict of `allowed` does not prove execution happened; `pending` does not prove the operator approved. Sentinel relies on Hermes-native approval prompts; it does not have a separate authorization database.
 
