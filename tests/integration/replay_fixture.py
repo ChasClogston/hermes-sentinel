@@ -39,7 +39,7 @@ result = subprocess.run([sys.executable, '-m', 'sentinel.cli', 'replay', '--days
                         capture_output=True, text=True, timeout=10)
 assert result.returncode == 0, result.stderr
 for expected in ('Allowed: 0', 'Approval candidates: 2', 'Blocked: 2',
-                 'Of those, unclassified: 1', 'Selected history scan complete.'):
+                 'Of those, unclassified: 1', 'Selected retained history scanned.'):
     assert expected in result.stdout, result.stdout
 for private in ('REPLAY_PRIVATE_CANARY_487', 'pytest', '.env', 'example.invalid', str(home)):
     assert private not in result.stdout + result.stderr

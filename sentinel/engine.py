@@ -73,7 +73,8 @@ def evaluate(action: Action, policy: dict, audit_key: bytes) -> Decision:
     if denies:
         rule = sorted(denies, key=lambda r: (-r.get("priority", 0), r["id"]))[0]
     elif matches:
-        rule = sorted(matches, key=lambda r: (-r.get("priority", 0), r["id"]))[0]
+        rule = sorted(matches, key=lambda r: (-r.get("priority", 0),
+                      r["effect"] != "require_approval", r["id"]))[0]
     else:
         rule = {"id": "default-deny", "effect": "deny"}
     verdict = {"deny": "blocked", "allow": "allowed", "require_approval": "pending"}[rule["effect"]]

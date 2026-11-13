@@ -13,6 +13,16 @@ def _journal_default() -> Path:
         root = Path(os.environ.get('HERMES_HOME',str(Path.home()/'.hermes')))
     return root/'sentinel'/'audit.jsonl'
 
+def _replay_days(value):
+    try:
+        days = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError('--days must be an integer from 1 to 3650') from None
+    if not 1 <= days <= 3650:
+        raise argparse.ArgumentTypeError('--days must be an integer from 1 to 3650')
+    return days
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == 'replay':
@@ -20,7 +30,7 @@ def main(argv=None) -> int:
                                          description='Counts-only estimates from read-only Hermes history')
         parser.add_argument('--policy', type=Path,
                             default=Path(__file__).parent.parent / 'policies' / 'default.yaml')
-        parser.add_argument('--days', type=int, default=14)
+        parser.add_argument('--days', type=_replay_days, default=14)
         parser.add_argument('--all-profiles', action='store_true',
                             help='Include other profiles, which may contain other projects\' history')
         args = parser.parse_args(argv[1:])

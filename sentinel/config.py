@@ -42,6 +42,8 @@ def load_policy(path: str) -> dict:
             raise ValueError('invalid Sentinel policy priority')
         if not _string_list(rule.get('operations'), _OPERATIONS):
             raise ValueError('invalid Sentinel policy operations')
+        if rule['effect'] == 'allow' and 'unknown' in rule['operations']:
+            raise ValueError('Sentinel cannot allow unclassified operations')
         for key,allowed in (('destination_classes',_DESTINATIONS),('source_classes',_SOURCES)):
             if key in rule and not _string_list(rule[key],allowed):
                 raise ValueError('invalid Sentinel policy classification')
