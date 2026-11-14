@@ -159,7 +159,7 @@ def _scan(paths, policy, cutoff, now, emit, deadline, result=None, parent_pid=No
                         result['skipped'] += 1
                     else:
                         tool, args = parsed
-                        action = normalize(tool, args)
+                        action = normalize(tool, args, **policy.get('_file_context', {}))
                         decision = evaluate(action, policy, key)
                         result[decision.verdict] += 1
                         result[action.operation] += 1
@@ -307,11 +307,19 @@ def _worker(paths, policy, cutoff, now, connection, deadline, parent_pid, scratc
 
 
 def summarize_replay(paths, policy, days: int = 14, seconds: float = MAX_SECONDS,
-                     now: float | None = None) -> dict[str, int]:
+                     now: float | None = None, file_context=None) -> dict[str, int]:
     if type(days) is not int or not 1 <= days <= 3650:
         raise ValueError('invalid replay window')
     if not 0 < seconds <= MAX_SECONDS:
         raise ValueError('invalid replay budget')
+    if file_context is None:
+        from .settings import current_home, read_profile_setting
+        from .file_guards import context
+        home = current_home()
+        file_context = context(home, read_profile_setting(home, 'policy_path'))
+    # Trusted analysis context travels with validated rules across spawn. Resolve
+    # it BEFORE clearing worker HOME; never derive it from the snapshot scaffold.
+    policy = {**policy, '_file_context': dict(file_context)}
     with termination_handlers() as stop_requested:
         now = time.time() if now is None else now
         result = _empty()

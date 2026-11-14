@@ -20,11 +20,14 @@ jobs:
           python -m pip install -e .
           python -m pip install 'ruamel.yaml>=0.18,<0.19'
       - name: Fetch exact Hermes YAML compatibility module for CI
-        run: |
-          mkdir -p .ci-hermes
-          curl --fail --silent --show-error --location --max-time 30 \
-            https://raw.githubusercontent.com/NousResearch/hermes-agent/2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19/hermes_yaml.py \
-            --output .ci-hermes/hermes_yaml.py
+        uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19
+          path: .ci-hermes
+          sparse-checkout: hermes_yaml.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Unit tests
         env:
           PYTHONPATH: .ci-hermes
@@ -107,6 +110,15 @@ jobs:
           printf 'plugins:\n  enabled:\n    - sentinel-governance\n' > "$behavior_home/config.yaml"
           HERMES_HOME="$behavior_home" PYTHONPATH="$behavior_home/plugins/sentinel-governance" \
             "$python" "$plugin_repo/tests/integration/permitted_alternative.py"
+
+          settings_home="$RUNNER_TEMP/sentinel-settings-fixture"
+          mkdir -p "$settings_home/plugins"
+          cp -R "$installed" "$settings_home/plugins/sentinel-governance"
+          HERMES_HOME="$settings_home" PYTHONPATH="$settings_home/plugins/sentinel-governance" \
+            "$python" "$plugin_repo/tests/integration/profile_settings.py"
+
+          HERMES_HOME="$RUNNER_TEMP/sentinel-review8-fixture" PYTHONPATH="$installed" \
+            "$python" "$plugin_repo/tests/integration/review8.py" "$installed"
 
           "$hermes" plugins disable sentinel-governance
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" disabled

@@ -14,6 +14,8 @@ class Action:
     operation: str
     destination: str | None = None
     source_class: str = "unknown"
+    tool_name: str | None = None
+    file_restriction: str | None = None
 
 @dataclass(frozen=True)
 class Decision:
@@ -58,9 +60,14 @@ def target_hmac(target: str, key: bytes) -> str:
 
 def evaluate(action: Action, policy: dict, audit_key: bytes) -> Decision:
     target, category = canonical_destination(action.destination)
+    if action.file_restriction:
+        return Decision('blocked', action.file_restriction, 'file_protection', target_hmac(target, audit_key),
+                        action.operation, action.tool)
     rules = policy.get("rules", [])
     matches = []
     for rule in rules:
+        if 'tools' in rule and (action.tool_name or action.tool) not in rule['tools']:
+            continue
         if action.operation not in rule.get("operations", []):
             continue
         if "destination_classes" in rule and category not in rule["destination_classes"]:
