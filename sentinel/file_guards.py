@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import stat
 
-_READ = {'read_file'}
+_READ = {'read_file', 'search_files'}
 _WRITE = {'write_file', 'patch'}
 _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'config.yaml', 'config.yml',
               'credentials.json', 'auth.json', 'hosts.yml', 'state.db',
@@ -30,7 +30,7 @@ def _paths(tool, args):
         text = args.get('patch')
         if not isinstance(text, str) or not text or len(text) > 1_048_576:
             raise ValueError('unrecognized patch')
-        for line in text.splitlines():
+        for line in (value.removesuffix('\r') for value in text.split('\n')):
             single, move = _SINGLE.fullmatch(line), _MOVE.fullmatch(line)
             if single:
                 paths.append(single.group(1).strip())
@@ -100,7 +100,7 @@ def file_restriction(tool, args, profile_home=None, policy_path=None):
         if policy is not None:
             protected.append(policy.resolve())
         for raw in _paths(tool, args):
-            if not isinstance(raw, str) or not raw or '\x00' in raw or not Path(raw).is_absolute():
+            if not isinstance(raw, str) or not raw or not raw.isprintable() or not Path(raw).is_absolute():
                 return 'ambiguous-file-target'
             path = Path(raw)
             if '..' in path.parts:

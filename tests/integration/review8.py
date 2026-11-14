@@ -19,7 +19,7 @@ os.environ.pop('HERMES_SENTINEL_MODE', None)
 audit_case = len(sys.argv)>2 and sys.argv[2]=='audit'
 policy = home/'policy.json'
 policy.write_text(json.dumps({'version':1,'rules':[
-    {'id':'allow-files','effect':'allow','operations':['unknown'],'tools':['read_file','write_file','patch']},
+    {'id':'allow-files','effect':'allow','operations':['unknown'],'tools':['read_file','search_files','write_file','patch']},
     {'id':'approve-secret','effect':'require_approval','operations':['unknown'],'tools':['secret_request']}]}))
 policy.chmod(0o600)
 config = home/'config.yaml'
@@ -54,18 +54,23 @@ alias=home/'alias.txt';alias.symlink_to(secret)
 hard=home/'hard.txt';os.link(secret,hard)
 with patch.object(registry,'dispatch',return_value='synthetic pass') as effect, \
      patch('tools.approval.request_tool_approval',return_value={'approved':False,'message':'Synthetic denied'}) as approval:
-    for name in ('read_file','write_file','patch'):
-        assert handle_function_call(name,{'path':str(ordinary),'content':'SYNTHETIC_ONLY'})=='synthetic pass'
-    assert effect.call_count==3
+    for name in ('read_file','search_files','write_file','patch'):
+        assert handle_function_call(name,{'path':str(ordinary),'content':'SYNTHETIC_ONLY','pattern':'synthetic'})=='synthetic pass'
+    assert effect.call_count==4
     approval.assert_not_called()
     for target in (secret,alias,hard):
         assert 'blocked' in str(handle_function_call('read_file',{'path':str(target)})).lower()
+    for args in ({'path':str(secret),'pattern':'SYNTHETIC_ONLY'},
+                 {'path':str(home),'pattern':'SYNTHETIC_ONLY'},
+                 {'path':str(home),'pattern':'.env','target':'files'},
+                 {'pattern':'SYNTHETIC_ONLY'}, {'path':'.','pattern':'SYNTHETIC_ONLY'}):
+        assert 'blocked' in str(handle_function_call('search_files',args)).lower()
     for target in (config,policy,home/'sentinel/audit.key',plugin/'__init__.py'):
         for name in ('write_file','patch'):
             assert 'blocked' in str(handle_function_call(name,{'path':str(target),'content':'SYNTHETIC_ONLY'})).lower()
     payload=f'*** Begin Patch\n*** Add File: {home/"out.txt"}\n+ok\n*** Move File: {ordinary} -> {policy}\n*** End Patch'
     assert 'blocked' in str(handle_function_call('patch',{'mode':'patch','patch':payload})).lower()
-    assert effect.call_count==3
+    assert effect.call_count==4
     approval.assert_not_called()
     # Operator-side config edits, not tool effects, reproduce loss/downgrade.
     config.write_text('')
@@ -83,7 +88,7 @@ with patch.object(registry,'dispatch',return_value='synthetic pass') as effect, 
     approval.assert_called_once()
     assert 'PRIVATE_APPROVAL_CANARY' not in str(approval.call_args)
     assert 'any operation' in str(approval.call_args)
-    assert effect.call_count==3
+    assert effect.call_count==4
 
 journal=home/'sentinel/audit.jsonl'
 rows=[json.loads(line) for line in journal.read_text().splitlines()]
@@ -95,13 +100,17 @@ assert 'PRIVATE_APPROVAL_CANARY' not in journal.read_text()
 from hermes_state import SessionDB
 db=SessionDB(home/'state.db'); db.create_session('synthetic','cli')
 calls=[('read_file',{'path':str(ordinary)}),('read_file',{'path':str(secret)}),
-       ('write_file',{'path':str(policy)}),('write_file',{'path':str(ordinary)}),('secret_request',{})]
+       ('write_file',{'path':str(policy)}),('write_file',{'path':str(ordinary)}),('secret_request',{}),
+       ('search_files',{'path':str(ordinary),'pattern':'synthetic'}),
+       ('search_files',{'path':str(secret),'pattern':'SYNTHETIC_ONLY'}),
+       ('search_files',{'path':str(home),'pattern':'SYNTHETIC_ONLY'}),
+       ('search_files',{'pattern':'SYNTHETIC_ONLY'})]
 db.append_message('synthetic','assistant',timestamp=time.time(),tool_calls=[
     {'id':str(i),'type':'function','function':{'name':name,'arguments':json.dumps(args)}} for i,(name,args) in enumerate(calls)])
 db.close()
 replay=subprocess.run([sys.executable,'-m','sentinel.cli','replay'],capture_output=True,text=True,timeout=10)
 assert replay.returncode==0, replay.stderr
-for expected in ('Allowed: 2\n','Blocked: 2\n','Approval candidates: 1\n'):
+for expected in ('Allowed: 3\n','Blocked: 5\n','Approval candidates: 1\n'):
     assert expected in replay.stdout,replay.stdout
 
 child_env=dict(os.environ,HERMES_HOME=str(home/'audit-child'))

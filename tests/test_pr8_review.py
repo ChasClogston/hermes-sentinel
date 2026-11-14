@@ -101,6 +101,28 @@ class Review8Tests(unittest.TestCase):
             if not alias.exists(): self.skipTest('Case-sensitive filesystem')
             self.assertEqual((h('write_file',{'path':str(alias)}) or {}).get('action'),'block')
 
+    def test_search_cannot_read_credentials_directly_or_recursively(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d).resolve()
+            home,p,values,h=self.setup_profile(root,policy=rules(tools=['search_files']))
+            secret=root/'.env';secret.write_text('SYNTHETIC_ONLY')
+            ordinary=root/'notes.txt';ordinary.write_text('synthetic')
+            for args in ({'pattern':'SYNTHETIC_ONLY'}, {'path':'.','pattern':'SYNTHETIC_ONLY'},
+                         {'path':str(secret),'pattern':'SYNTHETIC_ONLY'},
+                         {'path':str(root),'pattern':'SYNTHETIC_ONLY'},
+                         {'path':str(root),'pattern':'.env','target':'files'}):
+                with self.subTest(args=args):
+                    self.assertEqual((h('search_files',args) or {}).get('action'),'block')
+            self.assertIsNone(h('search_files',{'path':str(ordinary),'pattern':'synthetic'}))
+
+    def test_patch_path_separators_cannot_truncate_guarded_target(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d).resolve();home,p,values,h=self.setup_profile(root)
+            for separator in ('\f','\r','\u2028'):
+                payload=f'*** Begin Patch\n*** Update File: {root}/ordinary{separator}/../../profile/config.yaml\n@@\n-old\n+new\n*** End Patch'
+                self.assertEqual((h('patch',{'mode':'patch','patch':payload}) or {}).get('action'),'block')
+                self.assertEqual((h('write_file',{'path':str(root/'ordinary')+separator+'name'}) or {}).get('action'),'block')
+
     def test_enforce_latches_and_mode_change_is_signed(self):
         from sentinel.audit import verify_control_event
         with tempfile.TemporaryDirectory() as d:
