@@ -65,25 +65,21 @@ def _audit_key(state: Path) -> bytes:
 
 def register(ctx):
     """Resolve the active profile on each call, including after startup failure."""
-    from .sentinel.settings import current_home, resolve_settings
+    from .sentinel.settings import current_home, resolve_settings, ProfileSettings
     getter = getattr(ctx, 'get_config', lambda key, default=None: default)
     def resolve_binding():
-        return resolve_settings(current_home(), getter)
+        home = current_home()
+        try:
+            return resolve_settings(home, getter)
+        except Exception:
+            # Invalid/unreadable settings remain fail closed and can still
+            # record a sanitized mode transition under this profile's key.
+            return ProfileSettings(home, 'invalid', 'invalid', None)
     def resolve_current_profile():
         state = current_home() / 'sentinel'
         return str(state / 'audit.jsonl'), _audit_key(state)
     handler = SentinelHook('', '', b'', binding_resolver=resolve_binding,
                            state_resolver=resolve_current_profile)
-    # Preflight is diagnostic only. The dynamic hook retries for the next call's
-    # profile; an audit startup failure must never freeze an audit fallback.
-    try:
-        binding = resolve_binding()
-        logging.getLogger(__name__).info(
-            'Sentinel Governance effective mode=%s mode_source=%s policy_source=%s; settings resolved per call',
-            binding.mode, binding.mode_source, binding.policy_source)
-        binding.load_policy()
-        resolve_current_profile()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(
-            'Sentinel Governance initialization failure: %s', type(exc).__name__)
+    # Resolve/latch mode at registration, even before the first tool call.
+    handler.preflight()
     ctx.register_hook('pre_tool_call', handler)

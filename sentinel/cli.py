@@ -38,10 +38,12 @@ def main(argv=None) -> int:
         from .replay import discover_databases, display_replay, summarize_replay
         from .settings import current_home, resolve_settings
         try:
+            binding = resolve_settings(current_home())
             policy = (load_policy(str(args.policy)) if args.policy is not None else
-                      resolve_settings(current_home()).load_policy())
+                      binding.load_policy())
+            from .file_guards import context
             result = summarize_replay(discover_databases(args.all_profiles),
-                                      policy, days=args.days)
+                                      policy, days=args.days, file_context=context(binding.home, binding.policy_path))
             print(display_replay(result, days=args.days))
             return 0
         except Exception:
@@ -61,6 +63,13 @@ def main(argv=None) -> int:
             try:
                 binding = resolve_settings(current_home())
                 print(f'Effective mode: {binding.mode}\nMode source: {binding.mode_source}\nPolicy source: {binding.policy_source}')
+                from .settings import policy_failure_reason
+                try:
+                    binding.load_policy()
+                    print('Policy health: loaded')
+                except Exception as exc:
+                    print(f'Policy health: unavailable ({policy_failure_reason(exc)})')
+                print('Mode shown is the current configuration; a running process may retain its enforce latch until restart.')
             except Exception:
                 print('Effective mode: invalid (fail closed)\nMode source: invalid\nPolicy source: unavailable')
             print(display_report(summary,use_color=sys.stdout.isatty() and 'NO_COLOR' not in os.environ))

@@ -83,7 +83,7 @@ class SettingsTests(unittest.TestCase):
             values['mode'] = 'bad'
             self.assertEqual(hook('unlisted', {})['action'], 'block')
             values['mode'] = 'audit'
-            self.assertIsNone(hook('unlisted', {}))
+            self.assertEqual(hook('unlisted', {})['action'], 'block')
 
     def test_readonly_cli_settings_and_report(self):
         from sentinel.cli import main
@@ -108,7 +108,7 @@ class SettingsTests(unittest.TestCase):
             home = Path(d)
             local = threading.local(); barrier = threading.Barrier(2)
             def resolver():
-                binding = self.resolve(home, local.mode)
+                binding = self.resolve(home/local.mode, local.mode)
                 barrier.wait(timeout=3)
                 return binding
             hook = SentinelHook('', str(home/'audit.jsonl'), b'x'*32, binding_resolver=resolver)

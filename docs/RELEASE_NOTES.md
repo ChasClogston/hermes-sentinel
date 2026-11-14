@@ -2,10 +2,20 @@
 
 Separate follow-up to merged v0.6.1 / PR #7. Not production-enabled and not catalog-repinned.
 
+## PR #8 independent-review corrections
+
+- Refuse unclassified terminal/execute_code approvals as well as allows, including blanket unknown approvals with no tools list. Other whole-tool approval prompts explicitly grant one invocation of any operation the tool permits, without pretending arguments were shown.
+- Apply mandatory pre-rule protections to read_file/write_file/patch: protect governance files from writes, credential-shaped paths from reads/writes, and check every patch/move target. Known file tools require canonical absolute host paths; ambiguous/relative/aliased/special/multiply-linked targets and unrecognized patch formats are refused. This tightens the original whole-tool contract; it does not inspect other arguments or attest to other named tools.
+- Latch enforce per profile/process at registration or first resolution until process restart, surviving settings loss, requested downgrade and hook re-registration. Invalid mode remains blocking. Log and HMAC-sign requested mode changes, including refused downgrades.
+- Journal policy-load failure once per profile/process when the journal/key are usable. Report shows current policy health with sanitized reason codes and separately counts authenticated configuration events without inflating proposal totals. CLI configuration mode cannot establish a running process's latch.
+- Local signatures are record HMACs, not a chain or protection from same-privilege/key holders. File checks do not close inspection/execution races or opaque-tool/server bypasses. Finding 5's broader capability policy is deferred; only terminal/execute_code are refused by the unknown allow/approval loader.
+- Actual Hermes dispatch fixtures use synthetic effects and approvals, including Sentinel-only credential reads, self-modifying write attempts, lost/invalid settings, ordinary permitted file alternatives, audit failure visibility and real replay parity. See README for the complete boundary and compatibility notes.
+
+
 - Read `mode` and `policy_path` from public Hermes plugin settings on each active-profile call. Environment may tighten audit to enforce but cannot loosen settings enforce; invalid selected mode values fail closed. Startup logs and the read-only report show mode and source without private paths.
 - Honor a profile-local custom policy without editing the installed plugin. Refuse symlinks, escaping/traversing paths, special or multiply-linked files, unsafe ownership and group/other-writable files/directories. Opened descriptors bind validation to reads. Invalid policy observes in audit and blocks in enforce; never silently use bundled rules instead.
-- Add optional exact `tools` matching. Unknown allow now requires a nonempty named-tool list excluding terminal/execute_code. Hard-deny and approval priority and invalid-destination protection remain. Journal tool classes stay unchanged.
-- A named allow grants the whole tool; arguments and server capabilities are not inspected. A tool may write anywhere the host permits or perform any operation its implementation supports. This is operator trust, not capability isolation. Other host/plugin gates remain.
+- Add optional exact `tools` matching. Unknown allow/approval now requires a nonempty named-tool list excluding terminal/execute_code. Hard-deny and approval priority and invalid-destination protection remain. Journal tool classes stay unchanged.
+- A named allow grants the whole tool subject to the known-file-tool protections; other arguments and server capabilities are not inspected. A tool may write anywhere the host permits or perform any operation its implementation supports. This is operator trust, not capability isolation. Other host/plugin gates remain.
 - Replay defaults to the selected profile policy and uses the same tool matcher as live calls. An explicit `--policy` selects the analysis policy; all-profile replay uses one selected policy for all histories.
 - Add settings-only real-Hermes enforcement, named-tool and real history parity fixtures, plus mode/unsafe-file/concurrent-profile regressions. The fixture replaces a disposable plugin directory and verifies the external profile policy survives. Existing replay snapshot protections and accepted limitations are unchanged.
 

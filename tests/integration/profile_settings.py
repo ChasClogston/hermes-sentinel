@@ -50,13 +50,13 @@ assert policy_path.read_bytes() == original_policy
 with patch.object(registry, 'dispatch', return_value='synthetic effect') as execute, \
      patch('tools.approval.request_tool_approval', return_value={'approved':False,'message':'Synthetic denied'}) as approval:
     for name in ('read_file','secret_request'):
-        assert handle_function_call(name, {'path':'PRIVATE_ARGUMENT'}) == 'synthetic effect'
+        assert handle_function_call(name, {'path':str(home.resolve()/'ordinary.txt'),'extra':'PRIVATE_ARGUMENT'}) == 'synthetic effect'
     assert execute.call_count == 2
     approval.assert_not_called()
     result = handle_function_call('terminal', {'command':'echo PRIVATE_ARGUMENT'})
     assert 'blocked' in str(result).lower()
     assert execute.call_count == 2
-    result = handle_function_call('write_file', {'path':'PRIVATE_ARGUMENT'})
+    result = handle_function_call('write_file', {'path':str(home.resolve()/'out.txt'),'extra':'PRIVATE_ARGUMENT'})
     approval.assert_called_once()
     assert execute.call_count == 2
 
@@ -69,7 +69,7 @@ assert 'PRIVATE_' not in (home/'sentinel'/'audit.jsonl').read_text()
 from hermes_state import SessionDB
 db = SessionDB(home/'state.db'); db.create_session('synthetic', 'cli')
 db.append_message('synthetic', 'assistant', timestamp=time.time(), tool_calls=[
-    {'id':str(i),'type':'function','function':{'name':name,'arguments':'{}'}}
+    {'id':str(i),'type':'function','function':{'name':name,'arguments':json.dumps({'path':str(home.resolve()/'ordinary.txt')})}}
     for i,name in enumerate(('read_file','secret_request','terminal','write_file'))])
 db.close()
 run = subprocess.run([sys.executable,'-m','sentinel.cli','replay'],capture_output=True,text=True,timeout=10)

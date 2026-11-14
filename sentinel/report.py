@@ -43,6 +43,17 @@ def summarize(path: str | Path, days: int = 7, now: datetime | None = None) -> d
                         raise ValueError('naive timestamp')
                     if not threshold <= ts <= now + timedelta(minutes=5):
                         continue
+                    if row.get('event_type') is not None:
+                        from .audit import read_key, verify_control_event
+                        try:
+                            key = read_key(source.parent / 'audit.key')
+                            if not verify_control_event(row, key):
+                                raise ValueError('invalid control signature')
+                        except (OSError, ValueError):
+                            errors += 1
+                            continue
+                        counts[row['event_type']] += 1
+                        continue
                     mode = row['enforcement_mode']
                     status = row['execution_status']
                     classification = row.get('classification')
@@ -90,6 +101,8 @@ def display_report(result: dict, use_color: bool = False) -> str:
         ('Enforcement requests', c['approval_requests']),
         ('Sentinel Governance block decisions', c['actual_sentinel_blocks']),
         ('Invalid/ignored rows', result['invalid_rows']),
+        ('Signed mode-change events', c['mode_change']),
+        ('Signed policy-load failures', c['policy_load_failure']),
     )
     # All labels are constants and all values are validated aggregate integers.
     lines = ['+--------------------------------------------------+',

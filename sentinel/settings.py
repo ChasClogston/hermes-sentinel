@@ -5,10 +5,26 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import stat
+import errno
 import hermes_yaml as yaml
 from .config import load_policy, validate_policy
 
 _BUNDLED = Path(__file__).resolve().parent.parent / 'policies' / 'default.yaml'
+
+
+def policy_failure_reason(exc) -> str:
+    """Stable reason codes only; never display exception text or a policy path."""
+    if isinstance(exc, OSError):
+        return {errno.ENOENT:'not_found',errno.ELOOP:'symlink_refused',
+                errno.ENOTDIR:'symlink_or_not_directory',errno.EACCES:'unreadable'}.get(exc.errno,'filesystem_error')
+    return {'invalid policy path':'invalid_path','policy path escapes profile':'outside_profile',
+            'unsafe profile directory permissions':'unsafe_permissions',
+            'unsafe policy directory permissions':'unsafe_permissions',
+            'unsafe policy file permissions':'unsafe_permissions',
+            'unsafe policy owner':'unsafe_owner',
+            'multiply-linked policy file':'hardlink_refused',
+            'policy must be a regular file':'not_regular',
+            'unparsable profile policy':'unparsable'}.get(str(exc),'invalid_policy')
 
 
 def current_home() -> Path:
@@ -77,9 +93,14 @@ def _custom_policy(home: Path, raw) -> dict:
                 raise ValueError('unsafe policy directory permissions')
         file_fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         info = os.fstat(file_fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022
-                or info.st_uid not in {os.getuid(), 0} or info.st_nlink != 1):
-            raise ValueError('unsafe policy file')
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError('policy must be a regular file')
+        if info.st_mode & 0o022:
+            raise ValueError('unsafe policy file permissions')
+        if info.st_uid not in {os.getuid(), 0}:
+            raise ValueError('unsafe policy owner')
+        if info.st_nlink != 1:
+            raise ValueError('multiply-linked policy file')
         with os.fdopen(file_fd, encoding='utf-8') as stream:
             file_fd = None
             try:

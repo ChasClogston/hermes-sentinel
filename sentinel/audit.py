@@ -2,13 +2,42 @@
 import fcntl
 import json
 import os
+import hashlib
+import hmac
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
-FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict"})
-VERDICTS = frozenset({"allowed", "blocked", "pending", "approved", "denied", "unclassified"})
+FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict", "event_type", "previous_mode", "requested_mode", "mode_source"})
+VERDICTS = frozenset({"allowed", "blocked", "pending", "approved", "denied", "unclassified", "configuration"})
 
-def append_event(path: str, event: dict) -> None:
+
+def _canonical(record):
+    return json.dumps(record, sort_keys=True, separators=(',', ':')).encode()
+
+
+def verify_control_event(record: dict, key: bytes) -> bool:
+    unsigned = dict(record)
+    signature = unsigned.pop('signature_hmac_sha256', None)
+    return (isinstance(signature, str) and unsigned.get('event_type') in {'mode_change','policy_load_failure'}
+            and hmac.compare_digest(signature, hmac.new(key, _canonical(unsigned), hashlib.sha256).hexdigest()))
+
+
+def read_key(path) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o077
+                or info.st_uid != os.getuid()):
+            raise ValueError('unsafe audit key')
+        key = os.read(fd, 33)
+        if len(key) != 32:
+            raise ValueError('invalid audit key')
+        return key
+    finally:
+        os.close(fd)
+
+def append_event(path: str, event: dict, signing_key: bytes | None = None) -> None:
     if not set(event).issubset(FIELDS):
         raise ValueError("audit schema rejected unsupported field")
     if event.get("verdict") not in VERDICTS:
@@ -19,6 +48,12 @@ def append_event(path: str, event: dict) -> None:
     if any(len(v)>128 or any(ord(c)<32 for c in v) for v in event.values() if isinstance(v,str)):
         raise ValueError("audit schema rejected field content")
     record = {"schema_version":"1.0", "timestamp":datetime.now(timezone.utc).isoformat(), **event}
+    if event.get('event_type') is not None:
+        if (event['event_type'] not in {'mode_change','policy_load_failure'} or signing_key is None
+                or len(signing_key) != 32 or event.get('verdict') != 'configuration'):
+            raise ValueError('control events require signing')
+        record['schema_version'] = '1.1'
+        record['signature_hmac_sha256'] = hmac.new(signing_key, _canonical(record), hashlib.sha256).hexdigest()
     parent = Path(path).parent
     parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY|os.O_CREAT|os.O_APPEND|getattr(os, "O_NOFOLLOW", 0), 0o600)

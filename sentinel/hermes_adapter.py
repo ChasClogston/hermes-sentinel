@@ -16,6 +16,8 @@ from .audit import append_event
 from .config import load_policy
 from .engine import Action, evaluate
 from .source_policy import safe_source, safe_url_path
+from .runtime_state import ProfileState, profile_state
+from .settings import policy_failure_reason
 
 _LOG = logging.getLogger(__name__)
 _REFUSAL_GUIDANCE = (
@@ -52,8 +54,10 @@ def _sensitive_path(raw: str) -> bool:
     )
 
 
-def normalize(tool_name: str, args: dict) -> Action:
-    return replace(_normalize(tool_name, args), tool_name=tool_name)
+def normalize(tool_name: str, args: dict, **file_context) -> Action:
+    from .file_guards import file_restriction
+    return replace(_normalize(tool_name, args), tool_name=tool_name,
+                   file_restriction=file_restriction(tool_name, args, **file_context))
 
 
 def _normalize(tool_name: str, args: dict) -> Action:
@@ -125,18 +129,55 @@ class SentinelHook:
         self.mode = mode
         self.state_resolver = state_resolver
         self.binding_resolver = binding_resolver
+        self._state = ProfileState()
 
     def __call__(self, tool_name: str, args: dict, task_id: str = '',
                  session_id: str = '', tool_call_id: str = '', **kwargs):
-        mode = 'invalid' if self.binding_resolver is not None else self.mode
+        return self._invoke(tool_name, args, session_id, tool_call_id)
+
+    def preflight(self):
+        return self._invoke('', {}, '', '', health_only=True)
+
+    def _invoke(self, tool_name, args, session_id, tool_call_id, health_only=False):
         try:
             binding = self.binding_resolver() if self.binding_resolver is not None else None
-            if binding is not None:
-                mode = binding.mode
-            policy = binding.load_policy() if binding is not None else load_policy(self.policy_path)
-            action = normalize(tool_name, args)
+            state = profile_state(binding.home) if binding is not None else self._state
+            # Linearize a profile's resolution through its decision. Other
+            # profiles have independent locks and cannot inherit its mode.
+            with state.lock:
+                return self._execute(binding, state, tool_name, args, session_id, tool_call_id, health_only)
+        except Exception as exc:
+            return self._failure('invalid' if self.binding_resolver is not None else self.mode, exc)
+
+    def _failure(self, mode, exc):
+        _LOG.warning('Sentinel Governance hook failure: %s', type(exc).__name__)
+        if mode == 'audit':
+            return None
+        return {'action':'block', 'message':(
+            'Sentinel Governance evaluation unavailable; tool call blocked. ' + _FAILURE_GUIDANCE)}
+
+    def _execute(self, binding, state, tool_name, args, session_id, tool_call_id, health_only):
+        mode = 'invalid' if binding is not None else self.mode
+        try:
+            mode = state.mode(binding.mode, binding.mode_source) if binding is not None else self.mode
             audit_path, audit_key = (self.state_resolver() if self.state_resolver is not None
                                      else (self.audit_path, self.audit_key))
+            state.flush(audit_path, audit_key)
+            if health_only and binding is not None:
+                _LOG.info('Sentinel Governance effective mode=%s mode_source=%s policy_source=%s; enforce latched per profile until restart',
+                          mode, binding.mode_source, binding.policy_source)
+            if mode == 'invalid':
+                raise ValueError('invalid Sentinel mode')
+            try:
+                policy = binding.load_policy() if binding is not None else load_policy(self.policy_path)
+            except Exception as exc:
+                state.policy_failure(audit_path, audit_key, mode, policy_failure_reason(exc))
+                raise
+            if health_only:
+                return None
+            file_context = ({'profile_home': binding.home, 'policy_path': binding.policy_path}
+                            if binding is not None else {})
+            action = normalize(tool_name, args, **file_context)
             decision = evaluate(action, policy, audit_key)
             event_id = secrets.token_hex(12)
             entry = {
@@ -197,7 +238,9 @@ class SentinelHook:
                         f'Sentinel Governance approval required: operation={decision.operation}, '
                         f'{context}, '
                         f'policy={decision.rule_id}, event={event_id}. '
-                        'Approve this exact request only.'
+                        + ('Authorize one invocation of this whole tool; it may perform any operation '
+                         'the tool permits. Arguments are not shown or approved individually.'
+                         if action.operation == 'unknown' else 'Approve this exact request only.')
                     ),
                 }
             return {
@@ -206,15 +249,7 @@ class SentinelHook:
                             + _REFUSAL_GUIDANCE)
             }
         except Exception as exc:
-            # Never include exception text, which may embed raw arguments.
-            _LOG.warning('Sentinel Governance hook failure: %s', type(exc).__name__)
-            if mode == 'audit':
-                return None
-            return {
-                'action': 'block',
-                'message': ('Sentinel Governance evaluation unavailable; tool call blocked. '
-                            + _FAILURE_GUIDANCE)
-            }
+            return self._failure(mode, exc)
 
 
 class BlockingHook:

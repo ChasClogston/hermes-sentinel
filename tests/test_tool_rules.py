@@ -53,11 +53,12 @@ class ToolRuleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d)/'p.json'; path.write_text(json.dumps({'version':1,'rules':[self.rule()]}))
             hook = SentinelHook(str(path), str(Path(d)/'audit.jsonl'), b'x'*32, 'enforce')
-            self.assertIsNone(hook('read_file', {'path': 'PRIVATE_CANARY'}))
+            args = {'path':str(Path(d).resolve()/'ordinary.txt'), 'extra':'PRIVATE_CANARY'}
+            self.assertIsNone(hook('read_file', args))
             self.assertIsNone(hook('secret_request', {'anything': 'PRIVATE_CANARY'}))
             self.assertEqual(hook('write_file', {})['action'], 'block')
             path.write_text(json.dumps({'version':1,'rules':[self.rule('require_approval')]}))
-            result = hook('read_file', {'path': 'PRIVATE_CANARY'})
+            result = hook('read_file', args)
             self.assertEqual(result['action'], 'approve')
             self.assertIn('whole tool', result['message'])
             self.assertNotIn('PRIVATE_CANARY', result['message'])

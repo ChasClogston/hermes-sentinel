@@ -52,9 +52,9 @@ def validate_policy(policy) -> dict:
                 isinstance(tool, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', tool)
                 for tool in tools)):
             raise ValueError('invalid Sentinel tools matcher')
-        if rule['effect'] == 'allow' and 'unknown' in rule['operations']:
+        if rule['effect'] in {'allow', 'require_approval'} and 'unknown' in rule['operations']:
             if not tools or any(tool.lower() in {'terminal', 'execute_code'} for tool in tools):
-                raise ValueError('Sentinel unknown allow requires named non-execution tools')
+                raise ValueError('Sentinel unknown allow/approval requires named non-execution tools')
         for key,allowed in (('destination_classes',_DESTINATIONS),('source_classes',_SOURCES)):
             if key in rule and not _string_list(rule[key],allowed):
                 raise ValueError('invalid Sentinel policy classification')
