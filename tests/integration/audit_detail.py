@@ -1,6 +1,11 @@
-"""audit_detail through actual Hermes dispatch in a disposable home; synthetic values only, no tool runs."""
+"""audit_detail through actual Hermes dispatch in a disposable home; synthetic values only, no tool runs.
+
+Checks the WHOLE serialized journal for a registered synthetic vault value and a pattern-shaped key,
+in normal operation and with the redactor made unavailable.
+"""
 import json
 import os
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,41 +18,54 @@ for k in ('SENTINEL_GOVERNANCE_MODE', 'HERMES_SENTINEL_MODE'):
 
 VAULT = 'zq' + 'SYNTHETICVAULTVALUE' * 2 + '93'           # stands in for a Secret Guard-registered key
 PATTERN = 'sk-proj-SYNTHETIC00000000000000000000000000abcd'  # caught by Hermes patterns alone
+(home/'config.yaml').write_text(
+    'plugins:\n  enabled: [sentinel-governance]\n  entries:\n    sentinel-governance:\n'
+    '      settings:\n        mode: audit\n        audit_detail: commands\n')
 
-
-def configure(detail):
-    (home/'config.yaml').write_text(
-        'plugins:\n  enabled: [sentinel-governance]\n  entries:\n    sentinel-governance:\n'
-        f'      settings:\n        mode: audit\n        audit_detail: {detail}\n')
-
-
-def run(calls):
-    from model_tools import handle_function_call
-    from tools.registry import registry
-    with patch.object(registry, 'dispatch', return_value='synthetic effect') as execute:
-        for name, args in calls:
-            handle_function_call(name, args)
-    return execute.call_count
-
-
-configure('commands')
 from hermes_cli.plugins import discover_plugins
 from agent.redact import register_vault_redaction_value
+from model_tools import handle_function_call
+from tools.registry import registry
 discover_plugins()
 register_vault_redaction_value(VAULT)
+
 calls = [('terminal', {'command': f'curl -H "Authorization: Bearer {PATTERN}" https://x.invalid'}),
          ('terminal', {'command': f'MY_SERVICE_KEY={VAULT} ./run.sh'}),
          ('terminal', {'command': f'echo {VAULT}'}),
-         ('read_file', {'path': str(home/'notes.txt')})]
-assert run(calls) == len(calls), 'audit mode must not block'
-events = [json.loads(l) for l in journal.read_text().splitlines() if '"tool_name"' in l]
+         ('terminal', {'command': VAULT}),
+         ('terminal', {'command': f'sudo -u {VAULT} id'}),
+         ('read_file', {'path': str(home/f'{VAULT}.txt')})]
+
+
+def run(batch):
+    with patch.object(registry, 'dispatch', return_value='synthetic effect') as execute:
+        for name, args in batch:
+            handle_function_call(name, args)
+    assert execute.call_count == len(batch), 'audit mode must not block'
+
+
+run(calls)
 text = journal.read_text()
 assert VAULT not in text and PATTERN not in text, 'secret reached the journal'
-assert [e['tool_name'] for e in events] == ['terminal', 'terminal', 'terminal', 'read_file'], events
-assert [e.get('command_verb') for e in events[:3]] == ['curl', 'run.sh', 'echo'], events
+events = [json.loads(l) for l in text.splitlines() if '"tool_name"' in l]
+assert [e['tool_name'] for e in events] == ['terminal'] * 5 + ['read_file'], events
+assert [e.get('command_verb') for e in events[:5]] == ['curl', 'run.sh', 'echo', '[redacted]', 'sudo'], events
 assert all(e.get('audit_detail') == 'commands' for e in events), events
-assert all('command_redacted' in e for e in events[:3]) and 'target_redacted' in events[3], events
-assert events[2]['command_redacted'].startswith('echo ') and len(events[2]['command_redacted']) > 5, events[2]
-print('commands level: 4 events, tool names + verbs + redacted text, no synthetic secret in journal')
-for e in events:
-    print('  ', e['tool_name'], e.get('command_verb'), '|', (e.get('command_redacted') or e.get('target_redacted'))[:90])
+assert events[0]['command_redacted'] == 'curl -H "Authorization: Bearer ***" https://x.invalid', events[0]
+assert events[2]['command_redacted'].startswith('echo ') and 'target_redacted' in events[5], events
+print('normal: 6 events, registered tool names, verbs, redacted text; no synthetic secret anywhere in the journal')
+
+# Redactor unavailable: every input-derived field becomes a placeholder.
+modules = [m for name, m in list(sys.modules.items()) if name.endswith('sentinel.audit_detail')]
+assert modules, 'plugin audit_detail module not loaded'
+before = len(text.splitlines())
+with patch.multiple(modules[0], _redactor=lambda: None):
+    run(calls)
+text = journal.read_text()
+assert VAULT not in text and PATTERN not in text, 'secret reached the journal with redactor unavailable'
+failed = [json.loads(l) for l in text.splitlines()[before:] if '"tool_name"' in l]
+assert len(failed) == len(calls), failed
+assert all(e['tool_name'] == '[unavailable]' and e['audit_detail'] == 'unavailable' for e in failed), failed
+assert all(e.get('command_verb') == '[unavailable]' for e in failed[:5]), failed
+assert not any('command_redacted' in e or 'target_redacted' in e for e in failed), failed
+print('redactor unavailable: 6 events, placeholders only; no synthetic secret anywhere in the journal')

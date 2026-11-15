@@ -2,11 +2,14 @@
 
 Audit detail for policy review. Not production-enabled until installed by the owner.
 
-- Journal records the real tool name (validated token syntax, else `[redacted]`) instead of `terminal`/`other`.
-- Terminal records add `command_verb`: the first program word, skipping `VAR=value` assignments and wrappers (`sudo`, `env`, `nohup`, `time`, `command`, `exec` and their options).
-- New profile setting `audit_detail` (`basic` default, `commands` opt-in; anything else is `basic`; no environment override). At `commands`, terminal records add `command_redacted` and file/URL tools add `target_redacted`, after forced Hermes redaction including registered vault values; control characters escaped; capped at 2000 characters. Redactor missing or failing: `audit_detail: unavailable`, no text.
-- Journal schema: four new allowlisted fields; the two text fields allow up to 2000 characters; DEL now rejected alongside other control characters.
-- Tests: 11 new unit tests (one runs against the installed Hermes redactor with synthetic vault and pattern values) and `tests/integration/audit_detail.py` through real Hermes dispatch in a disposable home. One existing assertion changed: tool names are now expected in the journal.
+- One confidentiality gate for every input-derived journal field: forced Hermes redaction (patterns plus vault values registered for the active profile). A changed short field becomes `[redacted]`; a missing, raising or non-string redactor makes every input-derived field `[unavailable]` and writes no text.
+- `tool_name`: real name only when Hermes's tool registry knows it, it matches token syntax and redaction leaves it unchanged; otherwise `[unregistered]`, `[unverified]`, `[redacted]`, `[unavailable]`.
+- `command_verb` (terminal): first program word after `VAR=value` assignments; wrappers recorded as themselves without guessing options or targets; `[unparsed]` for malformed quoting; `[redacted]` for long or token-shaped words.
+- New profile setting `audit_detail` (`basic` default, `commands` opt-in; anything else is `basic`; no environment override). At `commands`: `command_redacted` / `target_redacted`, escaped, capped at 2000 characters.
+- Journal schema: four new allowlisted fields; 2000-character limit for the two text fields only; DEL rejected with the other control characters.
+- Disclosures updated (README purpose, rules, audit schema, data handling; catalog disclosure): `basic` vs `commands`, metadata sensitivity, redaction limits, failure behaviour, no rotation.
+- Tests: whole-journal secret-exclusion tests over ten input shapes x two levels x four redactor states, plus the same cases against the real Hermes redactor with a registered synthetic vault value. `tests/integration/audit_detail.py` runs through real Hermes dispatch, normal and redactor-unavailable, and is now in both Mac and Linux lifecycle jobs together with the real-redactor unit tests (`SENTINEL_REQUIRE_REAL_REDACTOR=1`, so they cannot skip there). `hermes_lifecycle.py` now expects `command_verb` and still forbids paths, destinations and file names.
+- Independent review (Astra, 2026-11-15) found that the first candidate wrote unredacted tool names and program words, including when redaction failed. This candidate fixes that.
 
 # v0.7.0 candidate
 
