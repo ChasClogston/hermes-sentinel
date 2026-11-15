@@ -19,7 +19,9 @@ Fields:
 
 Limits: redaction is pattern- and registry-based. A credential that Hermes does not recognise and
 that is not registered for the active profile can still appear in `command_redacted` or
-`target_redacted`. `commands` detail is for review windows only.
+`target_redacted`, and also in `command_verb` at either level when it is supplied as the program
+word itself. `basic` metadata is therefore not guaranteed secret-free. `commands` detail is for
+review windows only.
 """
 from __future__ import annotations
 

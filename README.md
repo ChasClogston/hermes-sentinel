@@ -143,7 +143,7 @@ An append-only-by-convention `sentinel/audit.jsonl` contains: event and action I
 
 **Failure behaviour.** If the redactor is missing, raises, or returns a non-string, every input-derived field in that record is `[unavailable]` and no text field is written.
 
-**Sensitivity and retention.** `basic` metadata can still reveal which tools and programs were used. `commands` text can contain anything Hermes does not recognise as secret and that is not registered for the active profile. Sentinel never rotates or expires the journal: it stays until the owner moves or deletes it. Turn `commands` off after a review window and move that window's journal aside.
+**Sensitivity and retention.** `basic` metadata is not guaranteed secret-free: it reveals which tools and programs were used, and a credential that Hermes does not recognise and that is not registered for the active profile is recorded if it is supplied as the program word itself. `commands` text can contain anything Hermes does not recognise as secret and that is not registered for the active profile. Sentinel never rotates or expires the journal: it stays until the owner moves or deletes it. Turn `commands` off after a review window and move that window's journal aside.
 
 This journal is **not a complete execution log**. A verdict of `allowed` does not prove execution happened; `pending` does not prove the operator approved. Sentinel relies on Hermes-native approval prompts; it does not have a separate authorization database.
 
