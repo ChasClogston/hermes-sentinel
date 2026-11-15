@@ -67,7 +67,9 @@ class ToolRuleTests(unittest.TestCase):
             # Tool names are recorded for policy review (PR #9) only when Hermes's registry knows them
             # and redaction leaves them unchanged (test_audit_detail.py covers that). Arguments never are.
             names = {json.loads(line)['tool_name'] for line in journal.splitlines()}
-            self.assertTrue(names <= {'read_file', 'secret_request', 'write_file', '[unregistered]', '[unverified]'}, names)
+            # Without Hermes on the path (unit CI) the redactor is unavailable and names fail closed.
+            self.assertTrue(names <= {'read_file', 'secret_request', 'write_file', '[unregistered]',
+                                      '[unverified]', '[unavailable]'}, names)
 
     def test_replay_matches_live_named_calls(self):
         policy = self.policy([self.rule(), self.rule('require_approval', 'write', ['write_file'])])
