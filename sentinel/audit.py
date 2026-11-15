@@ -1,4 +1,5 @@
-"""Strict allowlisted audit event serialization. No raw targets or arguments."""
+"""Strict allowlisted audit event serialization. No raw targets or arguments; command or target text
+only after Hermes redaction, and only when a profile opts in (see audit_detail.py)."""
 import fcntl
 import json
 import os
@@ -8,7 +9,10 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
-FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict", "event_type", "previous_mode", "requested_mode", "mode_source"})
+FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict", "event_type", "previous_mode", "requested_mode", "mode_source",
+                    "command_verb", "command_redacted", "target_redacted", "audit_detail"})
+# Redacted review detail may be longer than identifier fields; it is still capped and control-char free.
+_LONG_FIELDS = {"command_redacted": 2000, "target_redacted": 2000}
 VERDICTS = frozenset({"allowed", "blocked", "pending", "approved", "denied", "unclassified", "configuration"})
 
 
@@ -45,7 +49,8 @@ def append_event(path: str, event: dict, signing_key: bytes | None = None) -> No
     if not all(isinstance(v, str) or v is None for v in event.values()):
         raise ValueError("audit schema rejected field type")
     # Cap strings and reject control chars; tool arguments are not accepted as fields.
-    if any(len(v)>128 or any(ord(c)<32 for c in v) for v in event.values() if isinstance(v,str)):
+    if any(len(v)>_LONG_FIELDS.get(k, 128) or any(ord(c)<32 or ord(c)==127 for c in v)
+           for k, v in event.items() if isinstance(v,str)):
         raise ValueError("audit schema rejected field content")
     record = {"schema_version":"1.0", "timestamp":datetime.now(timezone.utc).isoformat(), **event}
     if event.get('event_type') is not None:

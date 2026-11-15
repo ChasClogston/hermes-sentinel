@@ -24,9 +24,14 @@ for tool, args in (
     assert directive is None, (tool, directive)
 
 journal = (home / "sentinel" / "audit.jsonl").read_text()
-for raw in ("pytest", "sentinel-journal-canary", "id_ed25519", "example.invalid"):
-    assert raw not in journal
+# v0.8.0 contract: the terminal program word (pytest, curl) is recorded at basic detail; arguments,
+# paths, destinations and file names are not.
+for raw in ("sentinel-journal-canary", "id_ed25519", "example.invalid", ".ssh"):
+    assert raw not in journal, raw
 events = [json.loads(line) for line in journal.splitlines()]
+assert [event.get("command_verb") for event in events] == ["pytest", None, "curl"], events
+assert all(event["tool_name"] in {"terminal", "read_file", "[unregistered]"} for event in events), events
+assert all("command_redacted" not in event and "target_redacted" not in event for event in events), events
 assert [event["verdict"] for event in events] == ["pending", "unclassified", "blocked"]
 assert all(event["session_id"] == "enabled" for event in events)
 assert all(event["execution_status"] == "not_enforced" for event in events)

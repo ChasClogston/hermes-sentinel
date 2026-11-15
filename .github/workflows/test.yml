@@ -120,6 +120,18 @@ jobs:
           HERMES_HOME="$RUNNER_TEMP/sentinel-review8-fixture" PYTHONPATH="$installed" \
             "$python" "$plugin_repo/tests/integration/review8.py" "$installed"
 
+          # v0.8.0 audit detail: whole-journal secret exclusion through real Hermes dispatch,
+          # normal and redactor-unavailable, plus the unit suite against the real Hermes redactor
+          # (SENTINEL_REQUIRE_REAL_REDACTOR=1 turns a skip into a failure).
+          audit_home="$RUNNER_TEMP/sentinel-audit-detail-fixture"
+          mkdir -p "$audit_home/plugins"
+          cp -R "$installed" "$audit_home/plugins/sentinel-governance"
+          HERMES_HOME="$audit_home" "$python" "$plugin_repo/tests/integration/audit_detail.py"
+          (cd "$plugin_repo" && HERMES_HOME="$RUNNER_TEMP/sentinel-unit-real" \
+            HERMES_AGENT_DIR="$plugin_repo/.ci-hermes" SENTINEL_REQUIRE_REAL_REDACTOR=1 \
+            PYTHONPATH="$plugin_repo:$plugin_repo/.ci-hermes" \
+            "$python" -m unittest discover -s tests -p 'test_audit_detail.py' -v)
+
           "$hermes" plugins disable sentinel-governance
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" disabled
           "$hermes" plugins remove sentinel-governance

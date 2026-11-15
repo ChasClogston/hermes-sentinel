@@ -64,7 +64,12 @@ class ToolRuleTests(unittest.TestCase):
             self.assertNotIn('PRIVATE_CANARY', result['message'])
             journal = (Path(d)/'audit.jsonl').read_text()
             self.assertNotIn('PRIVATE_CANARY', journal)
-            self.assertNotIn('secret_request', journal)
+            # Tool names are recorded for policy review (PR #9) only when Hermes's registry knows them
+            # and redaction leaves them unchanged (test_audit_detail.py covers that). Arguments never are.
+            names = {json.loads(line)['tool_name'] for line in journal.splitlines()}
+            # Without Hermes on the path (unit CI) the redactor is unavailable and names fail closed.
+            self.assertTrue(names <= {'read_file', 'secret_request', 'write_file', '[unregistered]',
+                                      '[unverified]', '[unavailable]'}, names)
 
     def test_replay_matches_live_named_calls(self):
         policy = self.policy([self.rule(), self.rule('require_approval', 'write', ['write_file'])])

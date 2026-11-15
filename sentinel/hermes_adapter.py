@@ -1,7 +1,8 @@
 """Conservative Hermes action-governance hook.
 
 Approved grammar is deliberately tiny. Unknown actions block in enforcement mode.
-No proposed shell commands are executed or serialized by this module.
+No proposed shell commands are executed by this module. Commands are serialized only after Hermes
+redaction, and only for profiles that set `audit_detail: commands` (audit_detail.py).
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit
 from .audit import append_event
+from .audit_detail import detail_fields
 from .config import load_policy
 from .engine import Action, evaluate
 from .source_policy import safe_source, safe_url_path
@@ -183,7 +185,6 @@ class SentinelHook:
             entry = {
                 'event_id': event_id,
                 'action_id': event_id,
-                'tool_name': 'terminal' if tool_name == 'terminal' else 'other',
                 'operation': decision.operation,
                 'target_hmac_sha256': decision.target_digest,
                 'verdict': ('unclassified' if mode == 'audit'
@@ -199,6 +200,8 @@ class SentinelHook:
                                      else 'approval_requested' if decision.verdict == 'pending'
                                      else 'not_observed'),
             }
+            entry.update(detail_fields(tool_name, args,
+                                       getattr(binding, 'audit_detail', 'basic') if binding is not None else 'basic'))
             # Keep opaque host-provided IDs only when they meet strict token syntax.
             for k, value in (('session_id', session_id), ('tool_call_id', tool_call_id)):
                 if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,96}', value):
