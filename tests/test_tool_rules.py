@@ -64,7 +64,8 @@ class ToolRuleTests(unittest.TestCase):
             self.assertNotIn('PRIVATE_CANARY', result['message'])
             journal = (Path(d)/'audit.jsonl').read_text()
             self.assertNotIn('PRIVATE_CANARY', journal)
-            self.assertNotIn('secret_request', journal)
+            # Tool names are recorded for policy review (PR #9); arguments never are at basic detail.
+            self.assertIn('"tool_name":"secret_request"', journal)
 
     def test_replay_matches_live_named_calls(self):
         policy = self.policy([self.rule(), self.rule('require_approval', 'write', ['write_file'])])

@@ -120,6 +120,7 @@ class ProfileSettings:
     mode: str
     mode_source: str
     policy_path: object
+    audit_detail: str = 'basic'
 
     @property
     def policy_source(self) -> str:
@@ -142,4 +143,6 @@ def resolve_settings(home: Path, getter=None, environ=None) -> ProfileSettings:
     mode = 'enforce' if any(value.strip().lower() == 'enforce' for value in selected) else 'audit'
     source = ('settings+environment' if setting is not None and env is not None else
               'settings' if setting is not None else 'environment' if env is not None else 'default')
-    return ProfileSettings(Path(home), mode, source, getter('policy_path', None))
+    from .audit_detail import detail_level
+    return ProfileSettings(Path(home), mode, source, getter('policy_path', None),
+                           detail_level(getter('audit_detail', None)))

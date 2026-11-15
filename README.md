@@ -13,7 +13,8 @@ The plugin ID is `sentinel-governance`. Install it under that name and use `sent
 - Classifies a **small, intentionally conservative** set of terminal action proposals.
 - Evaluates deterministic YAML policies with hard-deny precedence.
 - Uses Hermes's native `approve` gate in enforcement mode; Sentinel does **not** run its own authenticated approval UI.
-- Appends strict-schema JSONL records with HMAC-correlated destination identifiers, **never raw commands, raw URLs, or tool arguments**.
+- Appends strict-schema JSONL records with HMAC-correlated destination identifiers. Each record names the tool called and, for terminal calls, the first program word (`git`, `curl`); leading `VAR=value` assignments are skipped and never recorded. At the default detail, **no raw commands, raw URLs, or tool arguments are recorded.**
+- Optional review detail (`audit_detail: commands`, off by default): also records the terminal command, or a file/URL target, **after** Hermes's own redaction (`agent.redact.redact_sensitive_text`, forced, which also scrubs every vault value registered for the active profile, where Secret Guard registers its keys). If the redactor is unavailable or fails, the record says `audit_detail: unavailable` and holds no text. Redaction is pattern- and registry-based: a credential Hermes does not recognise and nobody registered can still be recorded. Turn it on for a review window, then off.
 - Defaults to **audit** mode: returns no blocking or approval directive even when its computed verdict is blocked.
 
 **Not a firewall or security sandbox.** In-process hooks do not stop actions outside Hermes, opaque tool formats, redirects, DNS changes, subprocess egress, or all dangerous shell commands. Command parsing is a deliberately restricted heuristic, not a complete shell AST. A malformed or unsupported operation is a policy `unknown`.
@@ -66,6 +67,7 @@ plugins:
     sentinel-governance:
       settings:
         mode: audit
+        # audit_detail: commands   # optional, review windows only; default basic
         policy_path: sentinel/policy.yaml
 ```
 

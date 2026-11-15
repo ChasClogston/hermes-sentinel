@@ -1,3 +1,13 @@
+# v0.8.0 candidate
+
+Audit detail for policy review. Not production-enabled until installed by the owner.
+
+- Journal records the real tool name (validated token syntax, else `[redacted]`) instead of `terminal`/`other`.
+- Terminal records add `command_verb`: the first program word, skipping `VAR=value` assignments and wrappers (`sudo`, `env`, `nohup`, `time`, `command`, `exec` and their options).
+- New profile setting `audit_detail` (`basic` default, `commands` opt-in; anything else is `basic`; no environment override). At `commands`, terminal records add `command_redacted` and file/URL tools add `target_redacted`, after forced Hermes redaction including registered vault values; control characters escaped; capped at 2000 characters. Redactor missing or failing: `audit_detail: unavailable`, no text.
+- Journal schema: four new allowlisted fields; the two text fields allow up to 2000 characters; DEL now rejected alongside other control characters.
+- Tests: 11 new unit tests (one runs against the installed Hermes redactor with synthetic vault and pattern values) and `tests/integration/audit_detail.py` through real Hermes dispatch in a disposable home. One existing assertion changed: tool names are now expected in the journal.
+
 # v0.7.0 candidate
 
 Separate follow-up to merged v0.6.1 / PR #7. Not production-enabled and not catalog-repinned.
