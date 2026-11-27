@@ -9,7 +9,7 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
-FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict", "event_type", "previous_mode", "requested_mode", "mode_source",
+FIELDS = frozenset({"event_id", "action_id", "session_id", "profile_id", "tool_name", "tool_name_status", "operation", "target_hmac_sha256", "verdict", "policy_id", "reason_code", "approval_id", "execution_status", "enforcement_mode", "tool_call_id", "classification", "policy_verdict", "event_type", "previous_mode", "requested_mode", "mode_source",
                     "command_verb", "command_redacted", "target_redacted", "audit_detail"})
 # Redacted review detail may be longer than identifier fields; it is still capped and control-char free.
 _LONG_FIELDS = {"command_redacted": 2000, "target_redacted": 2000}

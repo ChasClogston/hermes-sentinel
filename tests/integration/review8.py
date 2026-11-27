@@ -36,7 +36,7 @@ discover_plugins()
 
 if audit_case:
     with patch.object(registry,'dispatch',return_value='synthetic pass'):
-        for _ in range(3): assert handle_function_call('read_file',{'path':str(home/'ordinary.txt')})=='synthetic pass'
+        for _ in range(3): assert handle_function_call('read_file',{'path':str(home/'cache/scratch/ordinary.txt')})=='synthetic pass'
     journal=home/'sentinel/audit.jsonl'
     rows=[json.loads(line) for line in journal.read_text().splitlines()]
     assert len(rows)==1 and rows[0]['event_type']=='policy_load_failure'
@@ -48,7 +48,9 @@ if audit_case:
     print('PR8 audit policy failure: one signed event, continued synthetic dispatch, visible sanitized report health.')
     raise SystemExit(0)
 
-ordinary=home/'ordinary.txt'; ordinary.write_text('SYNTHETIC_ONLY')
+ordinary=home/'cache/scratch/ordinary.txt'
+ordinary.parent.mkdir(parents=True, exist_ok=True)
+ordinary.write_text('SYNTHETIC_ONLY')
 secret=home/'.env'; secret.write_text('SYNTHETIC_ONLY')
 alias=home/'alias.txt';alias.symlink_to(secret)
 hard=home/'hard.txt';os.link(secret,hard)

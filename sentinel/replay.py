@@ -24,7 +24,7 @@ MAX_SESSIONS = 200
 MAX_SECONDS = 2.0
 _PAGE_SIZE = 32
 _FIELDS = ('allowed', 'pending', 'blocked', 'unclassified', 'network_request',
-           'network_upload', 'test_execution', 'unknown', 'skipped', 'outside_window',
+           'network_upload', 'test_execution', 'file_read', 'file_search', 'web_read', 'unknown', 'skipped', 'outside_window',
            'examined', 'messages', 'sessions', 'databases_skipped', 'limited',
            'complete', 'finished')
 
@@ -384,7 +384,9 @@ def display_replay(result: dict[str, int], days: int = 14) -> str:
     rows = [('Allowed', 'allowed'), ('Approval candidates', 'pending'),
             ('Blocked', 'blocked'), ('Of those, unclassified', 'unclassified'),
             ('Network requests', 'network_request'), ('Network uploads', 'network_upload'),
-            ('Test executions', 'test_execution'), ('Unknown operations', 'unknown'),
+            ('Test executions', 'test_execution'), ('File reads', 'file_read'),
+            ('File searches', 'file_search'), ('Web reads', 'web_read'),
+            ('Unknown operations', 'unknown'),
             ('Malformed calls skipped', 'skipped'), ('Outside window or undated', 'outside_window'),
             ('Databases skipped', 'databases_skipped')]
     lines = ['SENTINEL GOVERNANCE // HISTORY REPLAY',

@@ -244,3 +244,35 @@ The cross-platform lifecycle jobs run synthetic fixtures against pinned Hermes, 
 Shutdown and orphan-worker cleanup, lease-protected stale cleanup, incremental copy/scan with partial-result retention, one bounded source-change retry, and distinct failed-database counting have regression coverage in both lifecycle jobs. Startup sweeping requires our versioned ownership marker, mode 0700 directory, mode 0600 single-link regular marker, matching user ownership, age over 60 seconds and an exclusive nonblocking lease. It never follows a marker/directory symlink or deletes an active leased replay. Older unmarked snapshots from pre-remediation builds are deliberately not swept automatically.
 
 See [release notes](docs/RELEASE_NOTES.md) for the incompatible unknown-allow policy behavior and remaining limitations. The snapshot design remains user-approved; no tool matcher or APFS-specific clone optimization is added in this patch.
+
+### Verify audit coverage per profile
+
+For each intended profile, record the start time with its UTC offset and run
+one benign tool call in a fresh session using the route that will serve that
+profile. Check a gateway-served session and a standalone CLI session separately
+if the profile uses both. A configuration entry alone does not confirm the
+hook ran. Verify the session against that profile's home:
+
+```sh
+sentinel-governance verify-profile --home "$PROFILE_HOME" \
+  --session-id "$SESSION_ID" --since "$START_TIME"
+```
+
+Exit status 0 confirms a matching call in audit mode. Exit status 1 means
+coverage is unverified for that session. Inspect the plugin load for the same
+route and retry with a new session. Run the check for the default Hermes home
+as well as each intended named profile before starting the audit window.
+
+### Field-audit classification
+
+The bundled policy explicitly handles structured file reads, file searches,
+and the built-in web search and extract tools. File protections still apply
+first. The bundled policy allows direct reads in the active profile's
+`cache/scratch` directory. Ordinary files elsewhere need approval. Inside
+Hermes homes, files outside scratch and recognized plugin or skill source
+remain protected. Source reads need approval under the bundled policy.
+Directory searches remain subject to the ambiguous-target protection.
+The curl classifier accepts a bounded set of display and timeout flags with
+`-q` first. Redirects and file output remain outside that classification.
+Tool names remain subject to registry verification and redaction. The
+`tool_name_status` field identifies missing or withheld names.

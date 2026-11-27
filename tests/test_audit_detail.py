@@ -106,7 +106,9 @@ class FieldUnitTests(unittest.TestCase):
         self.assertEqual(tool_name_field('not_registered', g, known), '[unregistered]')
         self.assertEqual(tool_name_field('read_file', g, None), '[unverified]')
         self.assertEqual(tool_name_field(CANARY, g, known), '[redacted]')
-        for bad in ('', 'x' * 97, 'has space', None, 3):
+        for missing in ('', None):
+            self.assertEqual(tool_name_field(missing, g, known), '[missing]')
+        for bad in ('x' * 97, 'has space', 3):
             self.assertEqual(tool_name_field(bad, g, known), '[redacted]')
         self.assertEqual(tool_name_field('read_file', _Gate(None), known), '[unavailable]')
 

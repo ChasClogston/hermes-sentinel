@@ -65,11 +65,15 @@ def evaluate(action: Action, policy: dict, audit_key: bytes) -> Decision:
                         action.operation, action.tool)
     rules = policy.get("rules", [])
     matches = []
+    legacy_read = action.operation in {'file_read', 'file_search', 'web_read'}
     for rule in rules:
         if 'tools' in rule and (action.tool_name or action.tool) not in rule['tools']:
             continue
-        if action.operation not in rule.get("operations", []):
-            continue
+        operations = rule.get("operations", [])
+        if action.operation not in operations:
+            # Existing named-tool policies covered these operations as unknown.
+            if not (legacy_read and 'unknown' in operations and rule.get('tools')):
+                continue
         if "destination_classes" in rule and category not in rule["destination_classes"]:
             continue
         if "source_classes" in rule and action.source_class not in rule["source_classes"]:

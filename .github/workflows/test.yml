@@ -89,11 +89,11 @@ jobs:
 
           "$python" "$plugin_repo/tests/integration/hermes_lifecycle.py" enabled
           PYTHONPATH="$installed" "$python" -m sentinel.cli report --days 7 | tee report.txt
-          grep -Eq 'Observed proposals[[:space:]]+3' report.txt
+          grep -Eq 'Observed proposals[[:space:]]+6' report.txt
           grep -Eq 'Unclassified[[:space:]]+1' report.txt
-          grep -Eq 'Hard-deny policy matches[[:space:]]+1' report.txt
-          grep -Eq 'Approval candidates[[:space:]]+1' report.txt
-          grep -Eq 'Audit-only observations[[:space:]]+3' report.txt
+          grep -Eq 'Hard-deny policy matches[[:space:]]+2' report.txt
+          grep -Eq 'Approval candidates[[:space:]]+2' report.txt
+          grep -Eq 'Audit-only observations[[:space:]]+6' report.txt
 
           HERMES_HOME="$RUNNER_TEMP/sentinel-replay-fixture" PYTHONPATH="$installed" \
             "$python" "$plugin_repo/tests/integration/replay_fixture.py"

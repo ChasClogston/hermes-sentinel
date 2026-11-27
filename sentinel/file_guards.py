@@ -8,9 +8,9 @@ _READ = {'read_file', 'search_files'}
 _WRITE = {'write_file', 'patch'}
 _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'config.yaml', 'config.yml',
               'credentials.json', 'auth.json', 'hosts.yml', 'state.db',
-              'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'login.keychain-db'}
-_PRIVATE = {'.ssh', '.aws', '.kube', '.docker', '.gnupg', '.hermes', 'keychains', 'keyrings'}
-_HINT = re.compile(r'secret|credential|token|password|auth', re.I)
+              'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'login.keychain-db', '.claude.json', '.zsh_history', '.bash_history'}
+_PRIVATE = {'.ssh', '.aws', '.kube', '.docker', '.gnupg', 'keychains', 'keyrings'}
+_HINT = re.compile(r'secret|credential|token|password|auth|creds', re.I)
 _SINGLE = re.compile(r'^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+)$')
 _MOVE = re.compile(r'^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+)$')
 
@@ -53,9 +53,12 @@ def _sensitive(path):
     for part in path.parts:
         name = part.lower()
         if (name in _PRIVATE or name in _SENSITIVE or name.startswith('.env.')
-                or name.endswith(('.pem', '.key', '.p12', '.pfx')) or _HINT.search(name)):
+                or name.startswith(('state.db-', 'config.yaml.', 'config.yml.'))
+                or name.endswith(('.pem', '.key', '.p12', '.pfx', '.keychain-db'))
+                or _HINT.search(name)):
             return True
-    return False
+    parts = tuple(part.casefold() for part in path.parts)
+    return any(parts[index:index + 2] == ('.config', 'gh') for index in range(len(parts)))
 
 
 def _protected(path, targets):
@@ -82,10 +85,10 @@ def _protected(path, targets):
     return False
 
 
-def file_restriction(tool, args, profile_home=None, policy_path=None):
-    """Opaque pre-rule veto; require absolute host paths instead of guessing task cwd."""
+def file_access(tool, args, profile_home=None, policy_path=None):
+    """Return a pre-rule veto and file scope for known host file tools."""
     if tool not in _READ | _WRITE:
-        return None
+        return None, None
     try:
         if profile_home is None:
             from .settings import current_home
@@ -99,26 +102,41 @@ def file_restriction(tool, args, profile_home=None, policy_path=None):
                      home / 'plugins' / 'sentinel-governance']
         if policy is not None:
             protected.append(policy.resolve())
+        scratch = home / 'cache' / 'scratch'
+        root = home.parent.parent if home.parent.name == 'profiles' else home
+        state_roots = [home, root]
+        scope = 'unknown'
         for raw in _paths(tool, args):
             if not isinstance(raw, str) or not raw or not raw.isprintable() or not Path(raw).is_absolute():
-                return 'ambiguous-file-target'
+                return 'ambiguous-file-target', None
             path = Path(raw)
             if '..' in path.parts:
-                return 'ambiguous-file-target'
+                return 'ambiguous-file-target', None
             for item in (path, *path.parents):
                 if item.is_symlink():
-                    return 'ambiguous-file-target'
+                    return 'ambiguous-file-target', None
             resolved = path.resolve()
             try:
                 info = path.stat()
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                    return 'ambiguous-file-target'
+                    return 'ambiguous-file-target', None
             except FileNotFoundError:
                 pass
             if tool in _WRITE and _protected(resolved, protected):
-                return 'governance-file-protected'
+                return 'governance-file-protected', None
             if _sensitive(path) or _sensitive(resolved):
-                return 'credential-file-protected'
-        return None
+                return 'credential-file-protected', None
+            # Scratch is the sole automatic read root. Reviewed source may
+            # be read with approval, while Hermes state stays protected.
+            in_scratch = resolved.is_relative_to(scratch) and resolved != scratch
+            source = (resolved.suffix.casefold() in {'.py', '.md'}
+                      and any(resolved.is_relative_to(home / name) for name in ('skills', 'plugins')))
+            is_state = (any(part.casefold() == '.hermes' for part in resolved.parts)
+                        or _protected(resolved, state_roots))
+            if is_state and not (in_scratch or (source and tool in _READ)):
+                return 'credential-file-protected', None
+            if tool == 'read_file' and in_scratch:
+                scope = 'workspace_file'
+        return None, scope
     except (OSError, ValueError, RuntimeError):
-        return 'ambiguous-file-target'
+        return 'ambiguous-file-target', None

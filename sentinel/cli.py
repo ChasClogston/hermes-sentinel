@@ -25,6 +25,41 @@ def _replay_days(value):
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'verify-profile':
+        from datetime import datetime
+        import json
+
+        parser = argparse.ArgumentParser(prog='sentinel-governance verify-profile',
+                                         description='Verify a recent audit call in a profile journal')
+        parser.add_argument('--home', type=Path, required=True)
+        parser.add_argument('--session-id', required=True)
+        parser.add_argument('--since', required=True, help='ISO 8601 time including UTC offset')
+        args = parser.parse_args(argv[1:])
+        try:
+            since = datetime.fromisoformat(args.since)
+            if since.tzinfo is None:
+                raise ValueError('missing UTC offset')
+        except ValueError:
+            parser.error('--since must be an ISO 8601 timestamp with a UTC offset')
+
+        try:
+            with (args.home / 'sentinel' / 'audit.jsonl').open(encoding='utf-8') as journal:
+                for line in journal:
+                    try:
+                        event = json.loads(line)
+                        if (event.get('session_id') == args.session_id
+                                and event.get('enforcement_mode') == 'audit'
+                                and event.get('execution_status') == 'not_enforced'
+                                and event.get('tool_call_id')
+                                and datetime.fromisoformat(event['timestamp']) >= since):
+                            print('Sentinel audit call verified for this profile and session.')
+                            return 0
+                    except (AttributeError, KeyError, TypeError, ValueError):
+                        continue
+        except OSError:
+            pass
+        print('No matching Sentinel audit call found.', file=sys.stderr)
+        return 1
     if argv and argv[0] == 'replay':
         parser = argparse.ArgumentParser(prog='sentinel-governance replay',
                                          description='Counts-only estimates from read-only Hermes history')
