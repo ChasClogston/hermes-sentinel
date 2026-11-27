@@ -61,9 +61,11 @@ def _sensitive_path(raw: str) -> bool:
 
 
 def normalize(tool_name: str, args: dict, **file_context) -> Action:
-    from .file_guards import file_restriction
-    return replace(_normalize(tool_name, args), tool_name=tool_name,
-                   file_restriction=file_restriction(tool_name, args, **file_context))
+    from .file_guards import file_access
+    action = _normalize(tool_name, args)
+    restriction, scope = file_access(tool_name, args, **file_context)
+    return replace(action, tool_name=tool_name, file_restriction=restriction,
+                   source_class=scope if scope is not None else action.source_class)
 
 
 def _normalize(tool_name: str, args: dict) -> Action:

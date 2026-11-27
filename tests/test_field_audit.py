@@ -15,16 +15,34 @@ class FieldAuditTests(unittest.TestCase):
             home = Path(directory).resolve() / '.hermes'
             for relative, verdict in (
                 ('cache/scratch/example/notes.txt', 'allowed'),
-                ('skills/example/SKILL.md', 'allowed'),
-                ('plugins/example/main.py', 'allowed'),
+                ('skills/example/SKILL.md', 'pending'),
+                ('plugins/example/main.py', 'pending'),
                 ('profiles/example/auth.json', 'blocked'),
                 ('cache/scratch/example/.env.local', 'blocked'),
                 ('state.db', 'blocked'),
+                ('state.db-wal', 'blocked'),
+                ('state.db-shm', 'blocked'),
+                ('config.yaml.bak-20261127', 'blocked'),
+                ('sessions/example.json', 'blocked'),
+                ('logs/gateway.log', 'blocked'),
+                ('whatsapp/session/creds.json', 'blocked'),
+                ('pairing/example.json', 'blocked'),
+                ('cron/jobs.json', 'blocked'),
+                ('gateway_state.json', 'blocked'),
+                ('plugins/.install-metadata.json', 'blocked'),
                 ('sentinel/audit.key', 'blocked'),
+                ('sentinel/audit.jsonl', 'blocked'),
+                ('sentinel/archive/audit.jsonl', 'blocked'),
+                ('profiles/other/cache/scratch/notes.txt', 'blocked'),
+                ('../outside/notes.txt', 'blocked'),
             ):
                 with self.subTest(relative=relative):
                     action = normalize('read_file', {'path': str(home / relative)}, profile_home=home)
                     self.assertEqual(evaluate(action, policy, b'x' * 32).verdict, verdict)
+
+            outside = home.parent / 'Documents' / 'report.txt'
+            action = normalize('read_file', {'path': str(outside)}, profile_home=home)
+            self.assertEqual(evaluate(action, policy, b'x' * 32).verdict, 'pending')
 
     def test_curl_keeps_configuration_and_file_boundaries(self):
         url = 'https://example.org/feed'

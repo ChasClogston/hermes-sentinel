@@ -22,6 +22,12 @@ rules:
     effect: allow
     operations: [file_read]
     tools: [read_file]
+    source_classes: [workspace_file]
+  - id: approve-unscoped-file-read
+    effect: require_approval
+    operations: [file_read]
+    tools: [read_file]
+    source_classes: [unknown]
   - id: approve-structured-file-search
     effect: require_approval
     operations: [file_search]

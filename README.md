@@ -267,7 +267,11 @@ as well as each intended named profile before starting the audit window.
 
 The bundled policy explicitly handles structured file reads, file searches,
 and the built-in web search and extract tools. File protections still apply
-first. Directory searches remain subject to the ambiguous-target protection.
+first. The bundled policy allows direct reads in the active profile's
+`cache/scratch` directory. Ordinary files elsewhere need approval. Inside
+Hermes homes, files outside scratch and recognized plugin or skill source
+remain protected. Source reads need approval under the bundled policy.
+Directory searches remain subject to the ambiguous-target protection.
 The curl classifier accepts a bounded set of display and timeout flags with
 `-q` first. Redirects and file output remain outside that classification.
 Tool names remain subject to registry verification and redaction. The
