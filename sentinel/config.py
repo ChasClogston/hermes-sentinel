@@ -6,7 +6,7 @@ import re
 _TOP = {'version', 'defaults', 'rules'}
 _DEFAULTS = {'unknown_action', 'unknown_destination'}
 _RULE = {'id','priority','effect','operations','destination_classes','source_classes','tools'}
-_OPERATIONS = {'network_upload','network_request','test_execution','unknown'}
+_OPERATIONS = {'network_upload','network_request','test_execution','file_read','file_search','web_read','unknown'}
 _DESTINATIONS = {'external_untrusted','local_or_private','none','unknown'}
 _SOURCES = {'credential_file','private_key','workspace_file','none','unknown'}
 

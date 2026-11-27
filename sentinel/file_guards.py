@@ -9,7 +9,7 @@ _WRITE = {'write_file', 'patch'}
 _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'config.yaml', 'config.yml',
               'credentials.json', 'auth.json', 'hosts.yml', 'state.db',
               'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'login.keychain-db'}
-_PRIVATE = {'.ssh', '.aws', '.kube', '.docker', '.gnupg', '.hermes', 'keychains', 'keyrings'}
+_PRIVATE = {'.ssh', '.aws', '.kube', '.docker', '.gnupg', 'keychains', 'keyrings'}
 _HINT = re.compile(r'secret|credential|token|password|auth', re.I)
 _SINGLE = re.compile(r'^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+)$')
 _MOVE = re.compile(r'^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+)$')
@@ -55,7 +55,8 @@ def _sensitive(path):
         if (name in _PRIVATE or name in _SENSITIVE or name.startswith('.env.')
                 or name.endswith(('.pem', '.key', '.p12', '.pfx')) or _HINT.search(name)):
             return True
-    return False
+    parts = tuple(part.casefold() for part in path.parts)
+    return any(parts[index:index + 2] == ('.config', 'gh') for index in range(len(parts)))
 
 
 def _protected(path, targets):

@@ -35,6 +35,10 @@ _SENSITIVE = {'.env', '.netrc', '.npmrc', '.pgpass', 'id_rsa',
               'id_dsa', 'id_ecdsa', 'id_ed25519', 'credentials.json',
               'auth.json', 'config.yaml', 'hosts.yml'}
 _PRIVATE_DIRS = {'.ssh', '.aws', '.kube', '.docker', '.gnupg'}
+_CURL_FLAGS = {'-s', '-S', '-sS', '-Ss', '--silent', '--show-error', '-f', '--fail'}
+_CURL_TIMEOUTS = {'--max-time', '--connect-timeout'}
+_STRUCTURED_READS = {'read_file': 'file_read', 'search_files': 'file_search',
+                     'web_search': 'web_read', 'web_extract': 'web_read'}
 _TEST_COMMANDS = {
     ('pytest',): 'pytest',
     ('python', '-m', 'pytest'): 'python -m pytest',
@@ -68,7 +72,11 @@ def _normalize(tool_name: str, args: dict) -> Action:
     Other network clients and arbitrary commands cannot safely be classified.
     Classification is NOT a shell sandbox or network boundary.
     """
-    if tool_name != 'terminal' or not isinstance(args, dict):
+    if not isinstance(args, dict):
+        return Action('other', 'unknown')
+    if tool_name in _STRUCTURED_READS:
+        return Action('other', _STRUCTURED_READS[tool_name])
+    if tool_name != 'terminal':
         return Action('other', 'unknown')
     cmd = args.get('command')
     if not isinstance(cmd, str) or not cmd.strip() or len(cmd) > 16384:
@@ -90,16 +98,20 @@ def _normalize(tool_name: str, args: dict) -> Action:
     if tok[0] != 'curl' or len(tok) < 3 or tok[1] != '-q':
         return Action('terminal', 'unknown')
     tok = [tok[0], *tok[2:]]
-    # V0.5 grammar: curl -q [--upload-file SOURCE | -T SOURCE] URI
-    #              or curl -q URI. Any extra option, attached flag, host, config,
-    #              redirect, proxy or data argument is treated as unknown.
-    if len(tok) == 2:
-        uri = tok[1]
-        source = None
-    elif len(tok) == 4 and tok[1] in ('-T', '--upload-file'):
+    # Keep the upload grammar exact. GET accepts only options with no effect
+    # on destinations, request data, or local files.
+    source = None
+    if len(tok) == 4 and tok[1] in ('-T', '--upload-file'):
         source, uri = tok[2], tok[3]
     else:
-        return Action('terminal', 'unknown')
+        options = iter(tok[1:-1])
+        for option in options:
+            if option in _CURL_FLAGS:
+                continue
+            if option in _CURL_TIMEOUTS and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', next(options, '')):
+                continue
+            return Action('terminal', 'unknown')
+        uri = tok[-1]
     try:
         parsed = urlsplit(uri)
         if (parsed.scheme.lower() not in {'http', 'https'}
@@ -221,7 +233,7 @@ class SentinelHook:
                 if action.operation == 'test_execution':
                     label = _TEST_COMMANDS[tuple(shlex.split(args['command']))]
                     context = f'command={label}, workspace={workspace}'
-                elif action.operation == 'unknown':
+                elif action.operation == 'unknown' or action.operation in _STRUCTURED_READS.values():
                     name = action.tool_name
                     label = name if isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', name) else '[redacted]'
                     context = f'tool={label}, scope=whole tool; arguments are not inspected'
@@ -243,7 +255,8 @@ class SentinelHook:
                         f'policy={decision.rule_id}, event={event_id}. '
                         + ('Authorize one invocation of this whole tool; it may perform any operation '
                          'the tool permits. Arguments are not shown or approved individually.'
-                         if action.operation == 'unknown' else 'Approve this exact request only.')
+                         if action.operation == 'unknown' or action.operation in _STRUCTURED_READS.values()
+                         else 'Approve this exact request only.')
                     ),
                 }
             return {

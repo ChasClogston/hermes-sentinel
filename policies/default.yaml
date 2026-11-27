@@ -18,3 +18,19 @@ rules:
     effect: require_approval
     operations: [test_execution]
     destination_classes: [none]
+  - id: allow-structured-file-read
+    effect: allow
+    operations: [file_read]
+    tools: [read_file]
+  - id: approve-structured-file-search
+    effect: require_approval
+    operations: [file_search]
+    tools: [search_files]
+  - id: approve-structured-web-read
+    effect: require_approval
+    operations: [web_read]
+    tools: [web_search, web_extract]
+  - id: approve-local-network-read
+    effect: require_approval
+    operations: [network_request]
+    destination_classes: [local_or_private]

@@ -104,6 +104,8 @@ def _token_like(word: str) -> bool:
 
 
 def tool_name_field(name, gate: _Gate, known=None) -> str:
+    if name is None or name == '':
+        return '[missing]'
     if not isinstance(name, str) or not _TOOL_NAME.fullmatch(name):
         return '[redacted]'
     if known is None:
@@ -141,6 +143,8 @@ def detail_fields(tool_name, args, level: str, redactor=None, known=None) -> dic
     gate = _Gate(redactor if redactor is not None else _redactor())
     known = known if known is not None else _registry_lookup()
     fields = {'tool_name': tool_name_field(tool_name, gate, known)}
+    if fields['tool_name'].startswith('['):
+        fields['tool_name_status'] = fields['tool_name'][1:-1]
     command = args.get('command') if isinstance(args, dict) else None
     if tool_name == 'terminal':
         fields['command_verb'] = command_verb(command, gate)
